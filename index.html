@@ -4,59 +4,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#111827">
+<meta name="description" content="Personal banking current affairs revision and memory app">
 <title>CA Vault — Banking Current Affairs</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="topbar">
-  <div>
-    <div class="brand">🧠 CA Vault</div>
-    <div class="sub">Your personal Banking Current Affairs revision app</div>
-  </div>
+  <div><div class="brand">🧠 CA Vault</div><div class="sub">Your personal Banking Current Affairs revision app</div></div>
   <button id="resetBtn" class="ghost">Reset Progress</button>
 </header>
-
 <main class="wrap">
   <section class="hero">
-    <div>
-      <h1>Study less. Recall more.</h1>
-      <p>Search your current affairs, mark what you need to remember, and revise with spaced repetition.</p>
-    </div>
-    <div class="hero-actions">
-      <button class="primary" onclick="setView('review')">⚡ Review Today</button>
-      <button class="secondary" onclick="setView('quiz')">📝 Quiz Me</button>
-    </div>
+    <div><h1>Study less. Recall more.</h1><p>Mark what you learn, revise it at the right time, and test yourself only on CA you have actually learned.</p></div>
+    <div class="hero-actions"><button class="primary" onclick="setView('review')">⚡ Review Today</button><button class="secondary" onclick="setView('quiz')">📝 Learned Quiz</button></div>
   </section>
-
   <section class="stats" id="stats"></section>
-
   <section class="controls">
     <input id="search" type="search" placeholder="🔍 Search title, facts, organization, country...">
     <select id="month"><option value="">All months</option></select>
     <select id="category"><option value="">All categories</option></select>
-    <select id="status">
-      <option value="">All status</option>
-      <option value="new">New</option>
-      <option value="remember">🔴 Need to Remember</option>
-      <option value="learned">🟢 Learned</option>
-      <option value="mastered">⭐ Mastered</option>
-    </select>
+    <select id="status"><option value="">All status</option><option value="new">New</option><option value="remember">🔴 Need to Remember</option><option value="learned">🟢 Learned</option><option value="mastered">⭐ Mastered</option></select>
   </section>
-
   <nav class="tabs">
-    <button data-view="all" class="active">📚 All CA</button>
-    <button data-view="remember">🔴 Need to Remember</button>
-    <button data-view="review">🟡 Review Today</button>
-    <button data-view="learned">🟢 Learned</button>
-    <button data-view="important">⭐ Must Remember</button>
-    <button data-view="quiz">📝 Quiz</button>
+    <button data-view="all" class="active">📚 All CA</button><button data-view="remember">🔴 Need to Remember</button><button data-view="review">🟡 Review Today</button><button data-view="learned">🟢 Learned</button><button data-view="important">⭐ Must Remember</button><button data-view="weak">⚠️ Weak CA</button><button data-view="flashcards">🧠 Flashcards</button><button data-view="quiz">📝 Learned Quiz</button>
   </nav>
-
   <section id="quizPanel" class="quiz hidden"></section>
+  <section id="flashPanel" class="quiz hidden"></section>
   <section id="list"></section>
   <div id="empty" class="empty hidden">No current affairs found for these filters.</div>
 </main>
-
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>
