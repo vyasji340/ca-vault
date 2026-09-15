@@ -7,12 +7,12 @@ let flashPool = [];
 
 const $ = id => document.getElementById(id);
 const today = () => new Date().toISOString().slice(0, 10);
-const save = () => { localStorage.setItem(KEY, JSON.stringify(progress)); render(); };
+const save = (rerender = true) => { localStorage.setItem(KEY, JSON.stringify(progress)); if (rerender) render(); };
 
 function getState(id) {
   return progress[id] || { status: "new", important: false, reviews: 0, due: null, wrong: 0, lastWrong: null };
 }
-function setState(id, patch) { progress[id] = { ...getState(id), ...patch }; save(); }
+function setState(id, patch, rerender = true) { progress[id] = { ...getState(id), ...patch }; save(rerender); }
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[m])); }
 function cleanText(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
 function firstSentence(s) {
@@ -30,7 +30,7 @@ function stats() {
   DATA.forEach(x => { const s = getState(x.id); c[s.status] = (c[s.status] || 0) + 1; if (s.important) c.important++; });
   $("stats").innerHTML = [
     ["📚", DATA.length, "Total CA"], ["🆕", c.new, "New"], ["🔴", c.remember, "Need to Remember"],
-    ["🟡", dueCount(), "Review Today"], ["⭐", c.important, "Must Remember"], ["⚠️", weakCount(), "Weak CA"]
+    ["🟡", dueCount(), "Review Today"], ["🟢", learnedCount(), "Learned"], ["⭐", c.important, "Must Remember"], ["⚠️", weakCount(), "Weak CA"], ["⚡", dailyPool().length, "Daily Revision"]
   ].map(a => `<div class="stat"><b>${a[0]} ${a[1]}</b><span>${a[2]}</span></div>`).join("");
 }
 function populate() {
@@ -48,6 +48,7 @@ function matches(x) {
   if (view === "important" && !s.important) return false;
   if (view === "review" && !(s.due && s.due <= today() && s.status !== "mastered")) return false;
   if (view === "weak" && !(s.wrong > 0 && s.status !== "mastered")) return false;
+  if (view === "daily" && !dailyPool().some(y => y.id === x.id)) return false;
   if (["quiz", "flashcards"].includes(view)) return false;
   return true;
 }
@@ -69,12 +70,39 @@ function card(x) {
     </div>
   </article>`;
 }
+function dailyPool() {
+  const due = DATA.filter(x => { const s = getState(x.id); return s.due && s.due <= today() && s.status !== "mastered"; });
+  const weak = DATA.filter(x => { const s = getState(x.id); return s.wrong > 0 && s.status !== "mastered"; });
+  const important = DATA.filter(x => getState(x.id).important && getState(x.id).status !== "mastered");
+  const learnedRecent = DATA.filter(x => { const s = getState(x.id); return (s.status === "learned" || s.status === "mastered") && s.reviews <= 1; });
+  const map = new Map(); [...due, ...weak, ...important, ...learnedRecent].forEach(x => map.set(x.id, x));
+  return [...map.values()];
+}
+function renderDaily() {
+  const pool = dailyPool();
+  const due = pool.filter(x => { const s = getState(x.id); return s.due && s.due <= today() && s.status !== "mastered"; }).length;
+  const weak = pool.filter(x => getState(x.id).wrong > 0).length;
+  const important = pool.filter(x => getState(x.id).important).length;
+  const recent = pool.filter(x => getState(x.id).reviews <= 1 && (getState(x.id).status === "learned" || getState(x.id).status === "mastered")).length;
+  $("list").innerHTML = `<div class="daily-box"><h2>⚡ Today's Revision</h2><p>App ne aaj ke liye due, weak, important aur recently learned CA ko ek jagah rakha hai.</p><div class="daily-grid"><div><b>${due}</b><span>Due Today</span></div><div><b>${weak}</b><span>Weak CA</span></div><div><b>${important}</b><span>Must Remember</span></div><div><b>${recent}</b><span>Recently Learned</span></div></div><div class="daily-actions"><button class="primary" onclick="startDailyFlashcards()">🧠 Start Recall</button><button class="secondary" onclick="startDailyQuiz()">📝 Daily Quiz</button></div></div>` + pool.map(card).join("");
+  $("empty").classList.toggle("hidden", pool.length > 0);
+}
+function startDailyFlashcards() {
+  flashPool = dailyPool(); flashIndex = 0; setView("flashcards");
+}
+function startDailyQuiz() {
+  const pool = dailyPool().filter(x => { const s=getState(x.id); return s.status === "learned" || s.status === "mastered"; });
+  if (pool.length < 4) { alert("Daily Quiz ke liye kam se kam 4 Learned CA chahiye."); return; }
+  window.__quizPoolIds = pool.map(x => x.id); window.__quizCount = Math.min(10, pool.length); window.__quizCategory = ""; setView("quiz");
+}
+
 function render() {
   stats();
   $("quizPanel").classList.toggle("hidden", view !== "quiz");
   $("flashPanel").classList.toggle("hidden", view !== "flashcards");
   if (view === "quiz") { $("list").innerHTML = ""; $("empty").classList.add("hidden"); renderQuiz(); return; }
   if (view === "flashcards") { $("list").innerHTML = ""; $("empty").classList.add("hidden"); renderFlashcards(); return; }
+  if (view === "daily") { $("quizPanel").classList.add("hidden"); $("flashPanel").classList.add("hidden"); renderDaily(); return; }
   const arr = DATA.filter(matches);
   $("list").innerHTML = arr.map(card).join("");
   $("empty").classList.toggle("hidden", arr.length > 0);
@@ -92,7 +120,7 @@ function mark(id, type) {
 }
 function toggleImportant(id) { const s = getState(id); s.important = !s.important; progress[id] = s; save(); }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); }
-function setView(v) { view = v; document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.view === v)); render(); }
+function setView(v) { view = v; if (v !== "quiz") window.__quizPoolIds = null; document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.view === v)); render(); }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setView(b.dataset.view));
 ["search", "month", "category", "status"].forEach(id => $(id).addEventListener("input", render));
 $("resetBtn").onclick = () => { if (confirm("Reset all your revision progress?")) { progress = {}; save(); } };
@@ -102,9 +130,10 @@ $("resetBtn").onclick = () => { if (confirm("Reset all your revision progress?")
 // while distractors are taken from other Learned/Mastered CA, not category labels.
 function learnedPool() {
   const cat = window.__quizCategory || "";
+  const allowed = window.__quizPoolIds ? new Set(window.__quizPoolIds) : null;
   return DATA.filter(x => {
     const s = getState(x.id);
-    return x.title && (s.status === "learned" || s.status === "mastered") && (!cat || x.category === cat);
+    return x.title && (s.status === "learned" || s.status === "mastered") && (!cat || x.category === cat) && (!allowed || allowed.has(x.id));
   });
 }
 function uniqueOptions(correct, candidates) {
@@ -169,7 +198,7 @@ function renderQuiz() {
     </div>`).join("")}
   `;
   const qc = $("quizCategory");
-  [...new Set(DATA.map(x => x.category))].sort().forEach(x => qc.insertAdjacentHTML("beforeend", `<option>${esc(x)}</option>`));
+  [...new Set(pool.map(x => x.category))].sort().forEach(x => qc.insertAdjacentHTML("beforeend", `<option>${esc(x)}</option>`));
   qc.value = window.__quizCategory || "";
   qc.onchange = () => { window.__quizCategory = qc.value; renderQuiz(); };
   const qcount = $("quizCount"); qcount.value = String(count); qcount.onchange = () => { window.__quizCount = Number(qcount.value); renderQuiz(); };
@@ -179,38 +208,77 @@ function answerQuiz(btn, correct, given, sourceId) {
   if (box.dataset.done === "1") return;
   box.querySelectorAll("button.option").forEach(b => b.disabled = true);
   const s = getState(sourceId);
-  if (given === correct) {
+  const isCorrect = given === correct;
+  if (isCorrect) {
     btn.classList.add("correct");
-    ans.textContent = "✅ Correct — fact recalled successfully.";
+    ans.innerHTML = "<div>✅ Correct — fact recalled successfully.</div>";
   } else {
     btn.classList.add("wrong");
-    ans.textContent = "❌ Correct answer: " + correct;
+    ans.innerHTML = "<div>❌ Correct answer: " + esc(correct) + "</div>";
     s.wrong = (s.wrong || 0) + 1;
     s.lastWrong = today();
-    // Bring a weak CA back for revision tomorrow without removing Learned status.
     s.due = addDays(new Date(), 1);
     progress[sourceId] = s;
   }
   box.dataset.done = "1";
-  box.dataset.correctPick = given === correct ? "1" : "0";
+  box.dataset.correctPick = isCorrect ? "1" : "0";
+  ans.insertAdjacentHTML("beforeend", `<div class="quiz-mark-actions">
+    <span>Mark this CA:</span>
+    <button class="mini green" onclick="quizMark('${sourceId}','learned',this)">🟢 Learned</button>
+    <button class="mini red" onclick="quizMark('${sourceId}','remember',this)">🔴 Need Revision</button>
+    <button class="mini star" onclick="quizImportant('${sourceId}',this)">⭐ Must Remember</button>
+  </div>`);
   localStorage.setItem(KEY, JSON.stringify(progress));
+  updateQuizScore();
+  stats();
+}
+function updateQuizScore() {
   const correctCount = [...document.querySelectorAll(".q")].filter(q => q.dataset.correctPick === "1").length;
   const total = document.querySelectorAll(".q").length;
-  $("quizScore").textContent = `Score: ${correctCount} / ${total} • Answered: ${document.querySelectorAll('.q[data-done="1"]').length} / ${total}`;
+  const answered = document.querySelectorAll('.q[data-done="1"]').length;
+  const el = $("quizScore");
+  if (el) el.textContent = `Score: ${correctCount} / ${total} • Answered: ${answered} / ${total}`;
+}
+function quizMark(id, type, btn) {
+  let s = getState(id);
+  if (type === "learned") { s.status = "learned"; if (!s.due) s.due = addDays(new Date(), 1); }
+  if (type === "remember") { s.status = "remember"; s.due = today(); }
+  progress[id] = s;
+  save(false);
+  btn.parentElement.querySelectorAll("button").forEach(b => b.classList.remove("selected"));
+  btn.classList.add("selected");
+  stats();
+}
+function quizImportant(id, btn) {
+  const s = getState(id);
+  s.important = true;
+  progress[id] = s;
+  save(false);
+  btn.classList.add("selected");
+  btn.textContent = "⭐ Marked Important";
   stats();
 }
 
 // ---------------- FLASHCARDS ----------------
 function flashCandidates() {
-  return DATA.filter(x => {
+  // Flashcards should show every Learned/Mastered CA, not only due/important cards.
+  // This makes the Learned section and Flashcards useful immediately after marking a CA.
+  const pool = DATA.filter(x => {
     const s = getState(x.id);
-    return (s.status === "learned" || s.status === "mastered" || s.status === "remember") && (s.due && s.due <= today() || s.important || s.wrong > 0);
+    return s.status === "learned" || s.status === "mastered" || s.status === "remember";
+  });
+  return pool.sort((a, b) => {
+    const sa = getState(a.id), sb = getState(b.id);
+    const wa = (sa.wrong || 0), wb = (sb.wrong || 0);
+    const da = sa.due && sa.due <= today() ? 1 : 0, db = sb.due && sb.due <= today() ? 1 : 0;
+    const ia = sa.important ? 1 : 0, ib = sb.important ? 1 : 0;
+    return (wb*3 + db*2 + ib) - (wa*3 + da*2 + ia);
   });
 }
 function renderFlashcards() {
   flashPool = flashCandidates();
   if (!flashPool.length) {
-    $("flashPanel").innerHTML = `<div class="quiz-empty"><h2>🧠 Active Recall Cards</h2><p>Abhi koi due/important/weak learned CA nahi hai.</p><p>Pehle CA ko <b>🟢 Learned</b> ya <b>⭐ Must Remember</b> mark karo.</p></div>`;
+    $("flashPanel").innerHTML = `<div class="quiz-empty"><h2>🧠 Active Recall Cards</h2><p>Abhi koi Learned CA nahi hai.</p><p>Pehle kisi CA ko <b>🟢 Learned</b> mark karo.</p></div>`;
     return;
   }
   if (flashIndex >= flashPool.length) flashIndex = 0;
