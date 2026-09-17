@@ -11,7 +11,7 @@
 <body>
 <header class="topbar">
   <div><div class="brand">🧠 CA Vault</div><div class="sub">Your personal Banking Current Affairs revision app</div></div>
-  <button id="resetBtn" class="ghost">Reset Progress</button>
+  <div class="top-actions"><button class="secondary" onclick="setView('add')">➕ Add CA</button><button class="ghost" id="resetBtn">Reset Progress</button></div>
 </header>
 <main class="wrap">
   <section class="hero">
@@ -26,9 +26,11 @@
     <select id="status"><option value="">All status</option><option value="new">New</option><option value="remember">🔴 Need to Remember</option><option value="learned">🟢 Learned</option><option value="mastered">⭐ Mastered</option></select>
   </section>
   <nav class="tabs">
-    <button data-view="all" class="active">📚 All CA</button><button data-view="remember">🔴 Need to Remember</button><button data-view="review">🟡 Review Today</button><button data-view="learned">🟢 Learned</button><button data-view="important">⭐ Must Remember</button><button data-view="weak">⚠️ Weak CA</button><button data-view="daily">⚡ Today's Revision</button><button data-view="flashcards">🧠 Flashcards</button><button data-view="quiz">📝 Learned Quiz</button>
+    <button data-view="all" class="active">📚 All CA</button><button data-view="remember">🔴 Need to Remember</button><button data-view="review">🟡 Review Today</button><button data-view="learned">🟢 Learned</button><button data-view="important">⭐ Must Remember</button><button data-view="weak">⚠️ Weak CA</button><button data-view="daily">⚡ Today's Revision</button><button data-view="flashcards">🧠 Flashcards</button><button data-view="quiz">📝 Learned Quiz</button><button data-view="calendar">📅 Calendar</button><button data-view="add">➕ Add CA</button>
   </nav>
   <section id="quizPanel" class="quiz hidden"></section>
+  <section id="calendarPanel" class="hidden"></section>
+  <section id="addPanel" class="hidden"></section>
   <section id="flashPanel" class="quiz hidden"></section>
   <section id="list"></section>
   <div id="empty" class="empty hidden">No current affairs found for these filters.</div>
