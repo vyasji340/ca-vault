@@ -7,11 +7,13 @@
 <meta name="description" content="Personal banking current affairs revision and memory app">
 <title>CA Vault — Your Current Affairs Memory App</title>
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
 </head>
 <body>
 <header class="topbar">
   <div><div class="brand">🧠 CA Vault</div><div class="sub">Your personal Banking Current Affairs revision app</div></div>
-  <div class="top-actions"><button class="secondary" onclick="setView('add')">➕ Add CA</button><button class="ghost" id="resetBtn">Reset Progress</button></div>
+  <div class="top-actions"><span id="syncStatus" class="sync-status">☁️ Local mode</span><button class="secondary" onclick="setView('add')">➕ Add CA</button><button class="ghost" id="resetBtn">Reset Progress</button></div>
 </header>
 <main class="wrap">
   <section class="hero">
@@ -19,12 +21,15 @@
     <div class="hero-actions"><button class="primary" onclick="setView('review')">⚡ Review Today</button><button class="secondary" onclick="setView('quiz')">📝 Learned Quiz</button></div>
   </section>
   <section class="stats" id="stats"></section>
-  <section class="controls">
-    <input id="search" type="search" placeholder="🔍 Search title, facts, organization, country...">
-    <select id="month"><option value="">All months</option></select>
-    <select id="category"><option value="">All categories</option></select>
-    <select id="status"><option value="">All status</option><option value="new">New</option><option value="remember">🔴 Need to Remember</option><option value="learned">🟢 Learned</option><option value="mastered">⭐ Mastered</option></select>
-  </section>
+  <div class="filter-sticky">
+    <section class="controls">
+      <input id="search" type="search" placeholder="🔍 Search title, facts, organization, country...">
+      <select id="month"><option value="">All months</option></select>
+      <select id="category"><option value="">All categories</option></select>
+      <select id="status"><option value="">All status</option><option value="new">New</option><option value="remember">🔴 Need to Remember</option><option value="learned">🟢 Learned</option><option value="mastered">⭐ Mastered</option></select>
+    </section>
+    <div id="filterInfo" class="filter-info"></div>
+  </div>
   <nav class="tabs">
     <button data-view="all" class="active">📚 All CA</button><button data-view="remember">🔴 Need to Remember</button><button data-view="review">🟡 Review Today</button><button data-view="learned">🟢 Learned</button><button data-view="important">⭐ Must Remember</button><button data-view="weak">⚠️ Weak CA</button><button data-view="daily">⚡ Today's Revision</button><button data-view="flashcards">🧠 Flashcards</button><button data-view="quiz">📝 Learned Quiz</button><button data-view="calendar">📅 Calendar</button><button data-view="add">➕ Add CA</button>
   </nav>

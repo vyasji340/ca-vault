@@ -3,6 +3,10 @@ const PROGRESS_KEY = "ca_vault_progress_v1";
 const CUSTOM_KEY = "ca_vault_custom_data_v1";
 let customData = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]");
 let progress = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
+let cloud = null;
+let currentUser = null;
+let syncTimer = null;
+let cloudReady = false;
 let view = "all";
 let flashIndex = 0;
 let flashPool = [];
@@ -13,8 +17,60 @@ const pad = n => String(n).padStart(2, "0");
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
 const monthName = date => new Intl.DateTimeFormat("en-IN", { month:"long" }).format(new Date(`${date}T12:00:00`));
 const DATA = () => [...BASE_DATA, ...customData];
-const save = (rerender = true) => { localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress)); if (rerender) render(); };
-const saveCustom = (rerender = true) => { localStorage.setItem(CUSTOM_KEY, JSON.stringify(customData)); if (rerender) { populate(true); render(); } };
+const setSyncStatus = (text, cls="") => { const el=$("syncStatus"); if(el){el.textContent=text; el.className="sync-status "+cls;} };
+const localSave = () => { localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress)); localStorage.setItem(CUSTOM_KEY, JSON.stringify(customData)); };
+const save = (rerender = true) => { localSave(); if (rerender) render(); scheduleCloudSync(); };
+const saveCustom = (rerender = true) => { localSave(); if (rerender) { populate(true); render(); } scheduleCloudSync(); };
+function markDirtyState(id){ progress[id] = {...progress[id], updatedAt: Date.now()}; }
+function markDirtyCustom(item){ item.updatedAt = Date.now(); }
+function isSupabaseConfigured(){ return !!(window.SUPABASE_URL && window.SUPABASE_ANON_KEY && !window.SUPABASE_URL.includes("PASTE_YOUR") && !window.SUPABASE_ANON_KEY.includes("PASTE_YOUR")); }
+async function initCloud(){
+  if(!isSupabaseConfigured()){ setSyncStatus("☁️ Setup required", "offline"); return; }
+  try{ cloud = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+    const {data:{session}}=await cloud.auth.getSession();
+    currentUser=session?.user||null; updateAuthUI();
+    cloud.auth.onAuthStateChange((_event,session)=>{ currentUser=session?.user||null; updateAuthUI(); if(currentUser) syncFromCloud(); });
+    if(currentUser) await syncFromCloud();
+  }catch(e){ console.error(e); setSyncStatus("☁️ Sync error", "error"); }
+}
+function updateAuthUI(){
+  let el=$("authBox"); if(!el) return;
+  if(!isSupabaseConfigured()){ el.innerHTML=`<button class="secondary" onclick="showCloudSetup()">☁️ Cloud Sync Setup</button>`; return; }
+  if(currentUser){ el.innerHTML=`<span class="auth-email">${esc(currentUser.email||"Signed in")}</span><button class="ghost" onclick="cloudSignOut()">Sign out</button>`; setSyncStatus("☁️ Synced", "online"); }
+  else el.innerHTML=`<button class="secondary" onclick="showAuth()">☁️ Login / Sign up</button>`;
+}
+function showCloudSetup(){ alert("Supabase setup: README.md mein diye SQL ko apne free Supabase project mein run karo, phir config.js mein Project URL aur anon key paste karke Vercel par files update karo."); }
+function showAuth(){
+  const email=prompt("Email address:"); if(!email) return; const password=prompt("Password (minimum 6 characters):"); if(!password) return;
+  (async()=>{ try{ setSyncStatus("☁️ Signing in...", "busy"); let r=await cloud.auth.signInWithPassword({email,password}); if(r.error){ const s=await cloud.auth.signUp({email,password}); if(s.error) throw s.error; alert("Account create ho gaya. Agar email confirmation enabled hai to email verify karke phir login karo."); } else alert("✅ Login successful. Ab laptop aur phone par same account use karo."); }catch(e){alert("Login/Signup error: "+e.message);setSyncStatus("☁️ Sync error","error");} })();
+}
+async function cloudSignOut(){ if(cloud) await cloud.auth.signOut(); }
+function scheduleCloudSync(){ if(!cloudReady||!currentUser) return; clearTimeout(syncTimer); syncTimer=setTimeout(()=>syncToCloud(),500); }
+async function syncFromCloud(){
+  if(!cloud||!currentUser) return; cloudReady=false; setSyncStatus("☁️ Syncing...", "busy");
+  try{
+    const {data:rows,error}=await cloud.from("ca_progress").select("item_id,state,updated_at"); if(error) throw error;
+    const merged={...progress};
+    (rows||[]).forEach(r=>{ const local=merged[r.item_id]; const remote=r.state||{}; const rt=Number(remote.updatedAt||new Date(r.updated_at).getTime()||0); const lt=Number(local?.updatedAt||0); if(!local || rt>=lt) merged[r.item_id]=remote; });
+    progress=merged;
+    const {data:customRows,error:e2}=await cloud.from("ca_custom_items").select("item_id,item,updated_at"); if(e2) throw e2;
+    const byId=new Map(customData.map(x=>[x.id,x]));
+    (customRows||[]).forEach(r=>{ const remote={...(r.item||{}),updatedAt:Number(r.item?.updatedAt||new Date(r.updated_at).getTime()||0)}; const local=byId.get(r.item_id); if(!local || Number(remote.updatedAt)>=Number(local.updatedAt||0)) byId.set(r.item_id,remote); });
+    customData=[...byId.values()]; localSave(); populate(true); cloudReady=true; render(); setSyncStatus("☁️ Synced", "online");
+    await syncToCloud();
+  }catch(e){ console.error(e); cloudReady=true; setSyncStatus("☁️ Sync error", "error"); }
+}
+async function syncToCloud(){
+  if(!cloud||!currentUser||!cloudReady) return; setSyncStatus("☁️ Saving...", "busy");
+  try{
+    const progressRows=Object.entries(progress).map(([item_id,state])=>({user_id:currentUser.id,item_id,state,updated_at:new Date(Number(state.updatedAt||Date.now())).toISOString()}));
+    if(progressRows.length){ const {error}=await cloud.from("ca_progress").upsert(progressRows,{onConflict:"user_id,item_id"}); if(error) throw error; }
+    const customRows=customData.map(item=>({user_id:currentUser.id,item_id:item.id,item,updated_at:new Date(Number(item.updatedAt||Date.now())).toISOString()}));
+    if(customRows.length){ const {error}=await cloud.from("ca_custom_items").upsert(customRows,{onConflict:"user_id,item_id"}); if(error) throw error; }
+    setSyncStatus("☁️ Synced", "online");
+  }catch(e){console.error(e);setSyncStatus("☁️ Save failed", "error");}
+}
+
 
 function getState(id) { return progress[id] || { status:"new", important:false, reviews:0, due:null, wrong:0, lastWrong:null }; }
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
@@ -59,9 +115,16 @@ function renderDaily(){const pool=dailyPool(),due=pool.filter(x=>{const s=getSta
 function startDailyFlashcards(){flashPool=dailyPool();flashIndex=0;setView("flashcards");}
 function startDailyQuiz(){const pool=dailyPool().filter(x=>{const s=getState(x.id);return s.status==="learned"||s.status==="mastered"});if(pool.length<4){alert("Daily Quiz ke liye kam se kam 4 Learned CA chahiye.");return;}window.__quizPoolIds=pool.map(x=>x.id);window.__quizCount=Math.min(10,pool.length);window.__quizCategory="";setView("quiz");}
 function hideSpecialPanels(){["quizPanel","flashPanel","calendarPanel","addPanel"].forEach(id=>$(id).classList.add("hidden"));}
-function render(){stats();hideSpecialPanels();if(view==="quiz"){$("list").innerHTML="";$("empty").classList.add("hidden");$("quizPanel").classList.remove("hidden");renderQuiz();return;}if(view==="flashcards"){$("list").innerHTML="";$("empty").classList.add("hidden");$("flashPanel").classList.remove("hidden");renderFlashcards();return;}if(view==="calendar"){$("list").innerHTML="";$("empty").classList.add("hidden");$("calendarPanel").classList.remove("hidden");renderCalendar();return;}if(view==="add"){$("list").innerHTML="";$("empty").classList.add("hidden");$("addPanel").classList.remove("hidden");renderAddForm();return;}if(view==="daily"){renderDaily();return;}const arr=DATA().filter(matches);$("list").innerHTML=arr.map(card).join("");$("empty").classList.toggle("hidden",arr.length>0);}
-function mark(id,type){let s=getState(id);if(type==="remember"){s.status="remember";s.due=today();}if(type==="learned"||type==="review"){s.status="learned";s.reviews=(s.reviews||0)+1;s.due=addDays(new Date(),s.reviews===1?1:s.reviews===2?3:s.reviews===3?7:s.reviews===4?14:30);}if(s.reviews>=6){s.status="mastered";s.due=addDays(new Date(),30);}progress[id]=s;save();}
-function toggleImportant(id){const s=getState(id);s.important=!s.important;progress[id]=s;save();}
+function renderFilterInfo(arr){
+  const all=DATA(), marked={learned:0,remember:0,important:0,weak:0};
+  arr.forEach(x=>{const st=getState(x.id);if(st.status==="learned"||st.status==="mastered")marked.learned++;if(st.status==="remember")marked.remember++;if(st.important)marked.important++;if((st.wrong||0)>0)marked.weak++;});
+  const filters=[]; const q=$("search").value.trim(),m=$("month").value,c=$("category").value,st=$("status").value;
+  if(q)filters.push(`Search: <b>${esc(q)}</b>`); if(m)filters.push(`Month: <b>${esc(m)}</b>`); if(c)filters.push(`Category: <b>${esc(c)}</b>`); if(st)filters.push(`Status: <b>${esc(st)}</b>`);
+  $("filterInfo").innerHTML=`Showing <b>${arr.length}</b> of <b>${all.length}</b> Current Affairs${filters.length?" • "+filters.join(" • "):""}<span class="filter-marked"> • 🟢 Learned <b>${marked.learned}</b> • 🔴 Need Revision <b>${marked.remember}</b> • ⭐ Must Remember <b>${marked.important}</b> • ⚠️ Weak <b>${marked.weak}</b></span>`;
+}
+function render(){stats();hideSpecialPanels();if(view==="quiz"){$("list").innerHTML="";$("empty").classList.add("hidden");$("filterInfo").innerHTML="📝 Quiz mode — questions are generated from your Learned/Mastered CA.";$("quizPanel").classList.remove("hidden");renderQuiz();return;}if(view==="flashcards"){$("list").innerHTML="";$("empty").classList.add("hidden");$("filterInfo").innerHTML="🧠 Flashcard mode — your marked progress is preserved.";$("flashPanel").classList.remove("hidden");renderFlashcards();return;}if(view==="calendar"){$("list").innerHTML="";$("empty").classList.add("hidden");$("filterInfo").innerHTML="📅 Calendar mode — date-wise CA and counts.";$("calendarPanel").classList.remove("hidden");renderCalendar();return;}if(view==="add"){$("list").innerHTML="";$("empty").classList.add("hidden");$("filterInfo").innerHTML="➕ Data Entry — manually added CA is stored separately from the original dataset.";$("addPanel").classList.remove("hidden");renderAddForm();return;}if(view==="daily"){renderDaily();renderFilterInfo(dailyPool());return;}const arr=DATA().filter(matches);renderFilterInfo(arr);$("list").innerHTML=arr.map(card).join("");$("empty").classList.toggle("hidden",arr.length>0);}
+function mark(id,type){let s=getState(id);if(type==="remember"){s.status="remember";s.due=today();}if(type==="learned"||type==="review"){s.status="learned";s.reviews=(s.reviews||0)+1;s.due=addDays(new Date(),s.reviews===1?1:s.reviews===2?3:s.reviews===3?7:s.reviews===4?14:30);}if(s.reviews>=6){s.status="mastered";s.due=addDays(new Date(),30);}progress[id]=s;markDirtyState(id);save();}
+function toggleImportant(id){const s=getState(id);s.important=!s.important;progress[id]=s;markDirtyState(id);save();}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return `${x.getFullYear()}-${pad(x.getMonth()+1)}-${pad(x.getDate())}`;}
 function setView(v){view=v;if(v!=="quiz")window.__quizPoolIds=null;document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("active",b.dataset.view===v));render();}
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setView(b.dataset.view));["search","month","category","status"].forEach(id=>$(id).addEventListener("input",render));
@@ -78,8 +141,8 @@ function addCustomCA(){
   const date=$("caDate").value,category=cleanText($("caCategory").value),title=cleanText($("caTitle").value),summary=cleanText($("caSummary").value),tags=cleanText($("caTags").value).split(",").map(x=>cleanText(x)).filter(Boolean);
   if(!date||!category||category==="__new"||!title||!summary){alert("Date, category, title aur exam note required hain.");return;}
   const id=`custom-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-  customData.push({id,date,month:monthName(date),category,title,summary,important:false,status:"new",tags:[monthName(date),category,...tags],source:"custom"});
-  if($("caImportant").checked)progress[id]={...getState(id),important:true};
+  customData.push({id,date,month:monthName(date),category,title,summary,important:false,status:"new",tags:[monthName(date),category,...tags],source:"custom",updatedAt:Date.now()});
+  if($("caImportant").checked){progress[id]={...getState(id),important:true};markDirtyState(id);}
   saveCustom(false);save(false);alert("✅ CA save ho gayi!");renderAddForm();
 }
 function deleteCustom(id){if(!confirm("Is added CA ko delete karna hai?"))return;customData=customData.filter(x=>x.id!==id);delete progress[id];saveCustom(false);save();}
@@ -101,12 +164,51 @@ function calendarDay(ds){const data=DATA().filter(x=>x.date===ds);if(!data.lengt
 function learnedPool(){const cat=window.__quizCategory||"",allowed=window.__quizPoolIds?new Set(window.__quizPoolIds):null;return DATA().filter(x=>{const s=getState(x.id);return x.title&&(s.status==="learned"||s.status==="mastered")&&(!cat||x.category===cat)&&(!allowed||allowed.has(x.id));});}
 function uniqueOptions(correct,candidates){const out=[],seen=new Set();[correct,...candidates].forEach(v=>{const t=cleanText(v),key=t.toLowerCase();if(t&&!seen.has(key)){seen.add(key);out.push(t);}});return out.slice(0,4);}
 function shuffled(a){return [...a].sort(()=>Math.random()-0.5);}
-function makeQuestion(x,pool,index){const title=cleanText(x.title),summary=cleanText(x.summary),other=shuffled(pool.filter(y=>y.id!==x.id));let correct=firstSentence(summary)||title;let question=`Which statement correctly matches the current affair: “${title}”?`;let candidates=other.map(y=>firstSentence(y.summary)).filter(v=>v&&v.length>35);const concrete=title.match(/₹\s?[\d,.]+(?:\s?(?:crore|lakh|million|billion))?|\b\d+(?:\.\d+)?%|\b(?:19|20)\d{2}\b/);if(concrete){const token=concrete[0],clean=summary.replace(/\s+/g," "),sentences=clean.split(/(?<=[.!?])\s+/).filter(s=>s.includes(token));if(sentences.length){correct=sentences[0].slice(0,300);question=`According to “${title}”, which statement correctly includes the key figure mentioned in this current affair?`;candidates=other.map(y=>{const ss=cleanText(y.summary).split(/(?<=[.!?])\s+/).find(s=>/₹\s?[\d,.]+|\b\d+(?:\.\d+)?%|\b(?:19|20)\d{2}\b/.test(s));return ss?ss.slice(0,300):firstSentence(y.summary);}).filter(Boolean);}}let options=uniqueOptions(correct,shuffled(candidates));for(const y of other){const fallback=firstSentence(y.summary);if(fallback&&!options.some(o=>o.toLowerCase()===fallback.toLowerCase()))options.push(fallback);if(options.length===4)break;}if(options.length<4){const titleOptions=shuffled(other.map(y=>y.title).filter(Boolean));options=uniqueOptions(correct,[...options,...titleOptions]);}options=shuffled(options.slice(0,4));return{id:`q${index}`,question,correct,options,sourceId:x.id};}
-function renderQuiz(){const pool=learnedPool();if(pool.length<4){$("quizPanel").innerHTML=`<div class="quiz-empty"><h2>📝 Learned CA Quiz</h2><p>Quiz start karne ke liye kam se kam <b>4 CA</b> ko <b>🟢 I Learned It</b> mark karo.</p><p>Abhi ${pool.length} Learned/Mastered CA available hain. Quiz mein sirf wahi CA use honge.</p><button class="primary" onclick="setView('all')">📚 Go to All CA</button></div>`;return;}const count=Math.min(parseInt(window.__quizCount||10,10),pool.length,20),selected=shuffled(pool).slice(0,count),questions=selected.map((x,i)=>makeQuestion(x,pool,i+1));$("quizPanel").innerHTML=`<div class="quiz-head"><div><h2>📝 Learned CA Quiz</h2><p>Sirf <b>🟢 Learned / ⭐ Mastered</b> CA se test. Galat answer ko app <b>⚠️ Weak CA</b> mein track karega.</p></div><div class="quiz-controls"><label>Questions <select id="quizCount"><option value="5">5</option><option value="10">10</option><option value="20">20</option></select></label><label>Category <select id="quizCategory"><option value="">All Learned CA</option></select></label><button class="primary" onclick="renderQuiz()">🔄 New Quiz</button></div></div><div class="quiz-score" id="quizScore">Score: 0 / ${questions.length} • Answered: 0 / ${questions.length}</div>${questions.map((q,i)=>`<div class="q" data-source="${esc(q.sourceId)}" data-correct="${esc(q.correct)}"><div class="q-number">Question ${i+1}</div><b>${esc(q.question)}</b><div class="q-source">📌 Source CA: ${esc(selected[i].title)}</div>${q.options.map(o=>`<button class="option" onclick="answerQuiz(this, ${JSON.stringify(q.correct)}, ${JSON.stringify(o)}, ${JSON.stringify(q.sourceId)})">${esc(o)}</button>`).join("")}<div class="answer"></div></div>`).join("")}`;const qc=$("quizCategory");[...new Set(pool.map(x=>x.category))].sort().forEach(x=>qc.insertAdjacentHTML("beforeend",`<option>${esc(x)}</option>`));qc.value=window.__quizCategory||"";qc.onchange=()=>{window.__quizCategory=qc.value;renderQuiz();};const qcount=$("quizCount");qcount.value=String(count);qcount.onchange=()=>{window.__quizCount=Number(qcount.value);renderQuiz();};}
-function answerQuiz(btn,correct,given,sourceId){const box=btn.closest(".q"),ans=box.querySelector(".answer");if(box.dataset.done==="1")return;box.querySelectorAll("button.option").forEach(b=>b.disabled=true);const s=getState(sourceId),isCorrect=given===correct;if(isCorrect){btn.classList.add("correct");ans.innerHTML="<div>✅ Correct — fact recalled successfully.</div>";}else{btn.classList.add("wrong");ans.innerHTML="<div>❌ Correct answer: "+esc(correct)+"</div>";s.wrong=(s.wrong||0)+1;s.lastWrong=today();s.due=addDays(new Date(),1);progress[sourceId]=s;}box.dataset.done="1";box.dataset.correctPick=isCorrect?"1":"0";ans.insertAdjacentHTML("beforeend",`<div class="quiz-mark-actions"><span>Mark this CA:</span><button class="mini green" onclick="quizMark('${sourceId}','learned',this)">🟢 Learned</button><button class="mini red" onclick="quizMark('${sourceId}','remember',this)">🔴 Need Revision</button><button class="mini star" onclick="quizImportant('${sourceId}',this)">⭐ Must Remember</button></div>`);localStorage.setItem(PROGRESS_KEY,JSON.stringify(progress));updateQuizScore();stats();}
+function moneyValues(text){return [...new Set((text.match(/(?:₹|Rs\.?|INR|\$|USD|€|EUR|£|GBP)\s?[\d,.]+(?:\s?(?:crore|lakh|million|billion|trillion))?/gi)||[]).map(cleanText))];}
+function numberValues(text){return [...new Set((text.match(/\b\d+(?:\.\d+)?\s?(?:per cent|percent|%|million|billion|trillion|crore|lakh|gigawatts?|GW|circuit-km|million people|years?)\b|\b\d+(?:\.\d+)?%/gi)||[]).map(cleanText))];}
+function yearValues(text){return [...new Set((text.match(/\b(?:19|20)\d{2}\b/g)||[]))];}
+function firstClause(text){return cleanText(text).split(/[,;.!?]/)[0].trim();}
+function answerPool(pool,type,x){
+  const vals=[];
+  for(const y of pool){if(y.id===x.id)continue;const t=cleanText(y.title),s=cleanText(y.summary);
+    if(type==="money") vals.push(...moneyValues(t+" "+s));
+    if(type==="number") vals.push(...numberValues(t+" "+s));
+    if(type==="year") vals.push(...yearValues(t+" "+s));
+    if(type==="person"){const m=t.match(/^(.+?)\s+(?:appointed|elected|re-elected|named|selected|joins|assumes|becomes)\b/i);if(m)vals.push(cleanText(m[1]).replace(/^GA by.*?\b/i,""));}
+    if(type==="brand"){const m=t.match(/appointed as\s+(.+?)\s+ambassador/i);if(m)vals.push(firstClause(m[1]).replace(/^the\s+/i,""));}
+    if(type==="org"){const m=t.match(/^([A-Z][A-Z0-9&.-]{1,10})\b/);if(m)vals.push(m[1]);}
+  }
+  return [...new Set(vals.map(cleanText).filter(v=>v.length>1))];
+}
+function makeQuestionVariants(x,pool){
+  const title=cleanText(x.title), summary=cleanText(x.summary), text=cleanText(title+" "+summary), qs=[];
+  const add=(question,correct,type)=>{if(!correct)return;qs.push({question,correct:cleanText(correct),type,sourceId:x.id});};
+  // Ambassador / appointment: generate person, brand, role and location questions when the source supports them.
+  let m=title.match(/^(.+?)\s+appointed as\s+(.+?)\s+ambassador(?:\s+in\s+(.+?))?$/i);
+  if(m){const person=cleanText(m[1]).replace(/^GA by.*?\b/i,"");const role=cleanText(m[2]);const brand=firstClause(role);const location=cleanText(m[3]||"");add(`Who was appointed as ${role} ambassador${location?` in ${location}`:""}?`,person,"person");add(`${person} was appointed as ambassador of which brand/organisation?`,brand,"brand");add(`What type of ambassador role was given to ${person}?`,role,"brand");if(location)add(`In which country/location was ${person} appointed as the ambassador?`,location,"org");}
+  // Money figures: every distinct amount can become a separate question.
+  for(const v of moneyValues(text).slice(0,5)){const sentence=(summary||title).split(/(?<=[.!?])\s+/).find(z=>z.includes(v))||title;let q=`What amount was mentioned in the current affair “${title}”?`;const before=sentence.split(v)[0].trim();if(/plan|package|roadmap|investment|loan|fund|acquisition|deal/i.test(before))q=`What amount was announced/mentioned for this plan, package, loan or investment?`;add(q,v,"money");}
+  // Percentages / quantities / targets.
+  for(const v of numberValues(text).slice(0,5)){const sentence=(summary||title).split(/(?<=[.!?])\s+/).find(z=>z.includes(v))||title;const before=cleanText(sentence.split(v)[0]);let q;if(/renewable|energy|gigawatts?/i.test(sentence))q=`How much renewable-energy capacity is targeted/mentioned in this current affair?`;else if(/transmission|circuit-km/i.test(sentence))q=`How many circuit-km of transmission lines are mentioned in the current affair?`;else if(/people|population|access/i.test(sentence))q=`How many people are mentioned as beneficiaries/people gaining access?`;else if(/percent|%|per cent/i.test(v))q=`What percentage is mentioned in this current affair?`;else q=`What quantity/figure is mentioned in this current affair?`;add(q,v,"number");}
+  for(const y of yearValues(text).slice(0,3))add(`By/in which year is the key target or event mentioned?`,y,"year");
+  // Named programmes/initiatives after common “$amount Name” patterns.
+  const programs=[...text.matchAll(/(?:\$|₹)[\d,.]+\s?(?:billion|million|crore|lakh)?\s+([A-Z][A-Za-z0-9&-]+(?:\s+[A-Z][A-Za-z0-9&-]+){1,7})/g)].map(m=>cleanText(m[1]));
+  programs.slice(0,3).forEach(name=>add(`Which programme/initiative is mentioned with this current affair?`,name,"org"));
+  // Purpose / “for/to” facts.
+  const purposeMatches=[...text.matchAll(/(?:to|for)\s+([a-z][^.!?;]{20,180})/gi)].map(m=>cleanText(m[1]).replace(/^(?:the|a)\s+/i,""));
+  purposeMatches.slice(0,3).forEach(p=>add(`What was the main purpose/use mentioned in this current affair?`,p,"purpose"));
+  // Organisation acronym from title (e.g. ADB, RBI, UPI) and title-based person fallback.
+  const org=title.match(/^([A-Z][A-Z0-9&.-]{1,10})\b/);if(org)add(`Which organisation/institution is associated with this current affair?`,org[1],"org");
+  if(!qs.length){add(`Which statement/fact is correct about “${title}”?`,firstSentence(summary)||title,"sentence");}
+  // Remove duplicate question/answer pairs.
+  const seen=new Set();return qs.filter(q=>{const k=q.question.toLowerCase()+"|"+q.correct.toLowerCase();if(seen.has(k))return false;seen.add(k);return true;}).slice(0,5);
+}
+function buildQuestion(q,pool,index,usedOptions=new Set()){const candidates=answerPool(pool,q.type,q.sourceId?DATA().find(x=>x.id===q.sourceId):{id:""});const fresh=candidates.filter(v=>!usedOptions.has(v.toLowerCase())&&v.toLowerCase()!==q.correct.toLowerCase());const old=candidates.filter(v=>v.toLowerCase()!==q.correct.toLowerCase());let options=uniqueOptions(q.correct,shuffled(fresh));if(options.length<3)options=uniqueOptions(q.correct,[...options,...shuffled(old)]);if(options.length<3){const fallbacks=shuffled(pool.filter(y=>y.id!==q.sourceId).map(y=>firstSentence(y.summary)||y.title));const freshFallbacks=fallbacks.filter(v=>!usedOptions.has(v.toLowerCase())&&v.toLowerCase()!==q.correct.toLowerCase());options=uniqueOptions(q.correct,[...options,...freshFallbacks,...fallbacks]);}if(options.length<3){options=uniqueOptions(q.correct,[...options,...shuffled(["None of these","Both A and B","All of the above"])])};const finalOptions=shuffled(options.slice(0,4));finalOptions.filter(v=>v.toLowerCase()!==q.correct.toLowerCase()).forEach(v=>usedOptions.add(v.toLowerCase()));return {...q,id:`q${index}`,options:finalOptions};}
+function renderQuiz(){const pool=learnedPool();if(pool.length<4){$("quizPanel").innerHTML=`<div class="quiz-empty"><h2>📝 Learned CA Quiz</h2><p>Quiz start karne ke liye kam se kam <b>4 CA</b> ko <b>🟢 I Learned It</b> mark karo.</p><p>Abhi ${pool.length} Learned/Mastered CA available hain.</p><button class="primary" onclick="setView('all')">📚 Go to All CA</button></div>`;return;}const bank=pool.flatMap(x=>makeQuestionVariants(x,pool));const count=Math.min(parseInt(window.__quizCount||10,10),bank.length,30);const selected=shuffled(bank).slice(0,count);const usedOptions=new Set();const questions=selected.map((q,i)=>buildQuestion(q,pool,i+1,usedOptions));$("quizPanel").innerHTML=`<div class="quiz-head"><div><h2>📝 Learned CA Quiz</h2><p>Ek hi CA se multiple exam-style questions aa sakte hain — person, organisation, amount, purpose, year, target etc. Har question ke options ko possible ho to <b>alag distractors</b> se banaya jaata hai, taaki same options baar-baar repeat na hon.</p></div><div class="quiz-controls"><label>Questions <select id="quizCount"><option value="5">5</option><option value="10">10</option><option value="20">20</option><option value="30">30</option></select></label><label>Category <select id="quizCategory"><option value="">All Learned CA</option></select></label><button class="primary" onclick="renderQuiz()">🔄 New Quiz</button></div></div><div class="quiz-score" id="quizScore">Score: 0 / ${questions.length} • Answered: 0 / ${questions.length}</div>${questions.map((q,i)=>`<div class="q" data-source="${esc(q.sourceId)}" data-correct="${esc(q.correct)}"><div class="q-number">Question ${i+1}</div><b>${esc(q.question)}</b><div class="q-source">📌 Source CA: ${esc(DATA().find(x=>x.id===q.sourceId)?.title||"")}</div>${q.options.map(o=>`<button class="option" onclick="answerQuiz(this, ${JSON.stringify(q.correct)}, ${JSON.stringify(o)}, ${JSON.stringify(q.sourceId)})">${esc(o)}</button>`).join("")}<div class="answer"></div></div>`).join("")}`;const qc=$("quizCategory");[...new Set(pool.map(x=>x.category))].sort().forEach(x=>qc.insertAdjacentHTML("beforeend",`<option>${esc(x)}</option>`));qc.value=window.__quizCategory||"";qc.onchange=()=>{window.__quizCategory=qc.value;renderQuiz();};const qcount=$("quizCount");qcount.value=String(Math.min(Number(window.__quizCount||10),30));qcount.onchange=()=>{window.__quizCount=Number(qcount.value);renderQuiz();};}
+function answerQuiz(btn,correct,given,sourceId){const box=btn.closest(".q"),ans=box.querySelector(".answer");if(box.dataset.done==="1")return;box.querySelectorAll("button.option").forEach(b=>b.disabled=true);const s=getState(sourceId),isCorrect=given===correct;if(isCorrect){btn.classList.add("correct");ans.innerHTML="<div>✅ Correct — fact recalled successfully.</div>";}else{btn.classList.add("wrong");ans.innerHTML="<div>❌ Correct answer: "+esc(correct)+"</div>";s.wrong=(s.wrong||0)+1;s.lastWrong=today();s.due=addDays(new Date(),1);progress[sourceId]=s;markDirtyState(sourceId);}box.dataset.done="1";box.dataset.correctPick=isCorrect?"1":"0";ans.insertAdjacentHTML("beforeend",`<div class="quiz-mark-actions"><span>Mark this CA:</span><button class="mini green" onclick="quizMark('${sourceId}','learned',this)">🟢 Learned</button><button class="mini red" onclick="quizMark('${sourceId}','remember',this)">🔴 Need Revision</button><button class="mini star" onclick="quizImportant('${sourceId}',this)">⭐ Must Remember</button></div>`);localStorage.setItem(PROGRESS_KEY,JSON.stringify(progress));updateQuizScore();stats();}
 function updateQuizScore(){const correctCount=[...document.querySelectorAll(".q")].filter(q=>q.dataset.correctPick==="1").length,total=document.querySelectorAll(".q").length,answered=document.querySelectorAll('.q[data-done="1"]').length,el=$("quizScore");if(el)el.textContent=`Score: ${correctCount} / ${total} • Answered: ${answered} / ${total}`;}
-function quizMark(id,type,btn){let s=getState(id);if(type==="learned"){s.status="learned";if(!s.due)s.due=addDays(new Date(),1);}if(type==="remember"){s.status="remember";s.due=today();}progress[id]=s;save(false);btn.parentElement.querySelectorAll("button").forEach(b=>b.classList.remove("selected"));btn.classList.add("selected");stats();}
-function quizImportant(id,btn){const s=getState(id);s.important=true;progress[id]=s;save(false);btn.classList.add("selected");btn.textContent="⭐ Marked Important";stats();}
+function quizMark(id,type,btn){let s=getState(id);if(type==="learned"){s.status="learned";if(!s.due)s.due=addDays(new Date(),1);}if(type==="remember"){s.status="remember";s.due=today();}progress[id]=s;markDirtyState(id);save(false);btn.parentElement.querySelectorAll("button").forEach(b=>b.classList.remove("selected"));btn.classList.add("selected");stats();}
+function quizImportant(id,btn){const s=getState(id);s.important=true;progress[id]=s;markDirtyState(id);save(false);btn.classList.add("selected");btn.textContent="⭐ Marked Important";stats();}
 
 // ---------------- FLASHCARDS ----------------
 function flashCandidates(){const data=DATA();const weak=data.filter(x=>getState(x.id).wrong>0&&getState(x.id).status!=="mastered"),due=data.filter(x=>{const s=getState(x.id);return s.due&&s.due<=today()&&s.status!=="mastered"}),important=data.filter(x=>getState(x.id).important&&getState(x.id).status!=="mastered"),learned=data.filter(x=>{const s=getState(x.id);return s.status==="learned"||s.status==="mastered"});const map=new Map();[...weak,...due,...important,...learned].forEach(x=>map.set(x.id,x));return [...map.values()];}
@@ -114,4 +216,4 @@ function renderFlashcards(){if(!flashPool.length)flashPool=flashCandidates();if(
 function flashNext(){if(!flashPool.length)flashPool=flashCandidates();flashIndex=(flashIndex+1)%flashPool.length;renderFlashcards();}
 function flashPrev(){if(!flashPool.length)flashPool=flashCandidates();flashIndex=(flashIndex-1+flashPool.length)%flashPool.length;renderFlashcards();}
 
-populate();render();
+populate();render();updateAuthUI();initCloud();
