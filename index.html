@@ -15,6 +15,17 @@
   <div><div class="brand">🧠 CA Vault</div><div class="sub">Your personal Banking Current Affairs revision app</div></div>
   <div class="top-actions"><span id="authBox"></span><span id="syncStatus" class="sync-status">☁️ Local mode</span><button class="secondary" onclick="setView('add')">➕ Add CA</button><button class="ghost" id="resetBtn">Reset Progress</button></div>
 </header>
+<div id="authModal" class="auth-modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+  <div class="auth-card">
+    <button class="auth-close" onclick="closeAuth()" aria-label="Close">×</button>
+    <h2 id="authTitle">☁️ CA Vault Login</h2>
+    <p>Use the same account on laptop, Android, iPhone and iPad to sync your progress.</p>
+    <label>Email<input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com"></label>
+    <label>Password<input id="authPassword" type="password" autocomplete="current-password" placeholder="Minimum 6 characters"></label>
+    <button class="primary auth-submit" onclick="submitAuth()">Login / Sign up</button>
+    <div id="authMessage" class="auth-message"></div>
+  </div>
+</div>
 <main class="wrap">
   <section class="hero">
     <div><h1>Study less. Recall more.</h1><p>Mark what you learn, revise it at the right time, and test yourself only on CA you have actually learned.</p></div>

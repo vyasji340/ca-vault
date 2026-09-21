@@ -41,9 +41,44 @@ function updateAuthUI(){
 }
 function showCloudSetup(){ alert("Supabase setup: README.md mein diye SQL ko apne free Supabase project mein run karo, phir config.js mein Project URL aur anon key paste karke Vercel par files update karo."); }
 function showAuth(){
-  const email=prompt("Email address:"); if(!email) return; const password=prompt("Password (minimum 6 characters):"); if(!password) return;
-  (async()=>{ try{ setSyncStatus("☁️ Signing in...", "busy"); let r=await cloud.auth.signInWithPassword({email,password}); if(r.error){ const s=await cloud.auth.signUp({email,password}); if(s.error) throw s.error; alert("Account create ho gaya. Agar email confirmation enabled hai to email verify karke phir login karo."); } else alert("✅ Login successful. Ab laptop aur phone par same account use karo."); }catch(e){alert("Login/Signup error: "+e.message);setSyncStatus("☁️ Sync error","error");} })();
+  if(!cloud){ alert("Supabase setup complete nahi hai. config.js check karo."); return; }
+  $("authModal")?.classList.remove("hidden");
+  $("authMessage").textContent="";
+  setTimeout(()=>$("authEmail")?.focus(),50);
 }
+function closeAuth(){ $("authModal")?.classList.add("hidden"); }
+async function submitAuth(){
+  if(!cloud) return;
+  const email=$("authEmail")?.value.trim();
+  const password=$("authPassword")?.value || "";
+  const msg=$("authMessage");
+  if(!email || !password){ if(msg) msg.textContent="Email aur password dono bharo."; return; }
+  if(password.length<6){ if(msg) msg.textContent="Password minimum 6 characters ka hona chahiye."; return; }
+  try{
+    setSyncStatus("☁️ Signing in...", "busy");
+    if(msg) msg.textContent="Connecting...";
+    let r=await cloud.auth.signInWithPassword({email,password});
+    if(r.error){
+      const s=await cloud.auth.signUp({email,password});
+      if(s.error) throw s.error;
+      if(s.data?.session){
+        closeAuth();
+        alert("✅ Account create aur login ho gaya. Ab same account phone/iPhone/iPad par use karo.");
+      }else{
+        if(msg) msg.textContent="Account create ho gaya. Email verification ke baad login karo.";
+        setSyncStatus("☁️ Check email", "busy");
+      }
+    }else{
+      closeAuth();
+      alert("✅ Login successful. Ab same account phone/iPhone/iPad par use karo.");
+    }
+  }catch(e){
+    console.error(e);
+    if(msg) msg.textContent="Login/Signup error: "+(e.message||"Please try again");
+    setSyncStatus("☁️ Sync error","error");
+  }
+}
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeAuth(); });
 async function cloudSignOut(){ if(cloud) await cloud.auth.signOut(); }
 function scheduleCloudSync(){ if(!cloudReady||!currentUser) return; clearTimeout(syncTimer); syncTimer=setTimeout(()=>syncToCloud(),500); }
 async function syncFromCloud(){
