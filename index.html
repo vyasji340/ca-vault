@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#111827">
 <meta name="description" content="Personal banking current affairs revision and memory app">
-<title>CA Vault — Your Current Affairs Memory App</title>
+<title>CA Vault V12 — Your Current Affairs Memory App</title>
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="config.js"></script>
 </head>
 <body>
@@ -42,10 +43,13 @@
     <div id="filterInfo" class="filter-info"></div>
   </div>
   <nav class="tabs">
-    <button data-view="all" class="active">📚 All CA</button><button data-view="remember">🔴 Need to Remember</button><button data-view="review">🟡 Review Today</button><button data-view="learned">🟢 Learned</button><button data-view="important">⭐ Must Remember</button><button data-view="weak">⚠️ Weak CA</button><button data-view="daily">⚡ Today's Revision</button><button data-view="flashcards">🧠 Flashcards</button><button data-view="quiz">📝 Learned Quiz</button><button data-view="calendar">📅 Calendar</button><button data-view="add">➕ Add CA</button>
+    <button data-view="all" class="active">📚 All CA</button><button data-view="remember">🔴 Need to Remember</button><button data-view="review">🟡 Review Today</button><button data-view="learned">🟢 Learned</button><button data-view="important">⭐ Must Remember</button><button data-view="weak">⚠️ Weak CA</button><button data-view="daily">⚡ Today's Revision</button><button data-view="flashcards">🧠 Flashcards</button><button data-view="quiz">📝 Learned Quiz</button><button data-view="calendar">📅 Calendar</button><button data-view="tree">🌳 Memory Tree</button><button data-view="ga">📚 GA BAG</button><button data-view="tools">📥 Excel Tools</button><button data-view="add">➕ Add CA</button>
   </nav>
   <section id="quizPanel" class="quiz hidden"></section>
   <section id="calendarPanel" class="hidden"></section>
+  <section id="treePanel" class="hidden"></section>
+  <section id="gaPanel" class="hidden"></section>
+  <section id="toolsPanel" class="hidden"></section>
   <section id="addPanel" class="hidden"></section>
   <section id="flashPanel" class="quiz hidden"></section>
   <section id="list"></section>

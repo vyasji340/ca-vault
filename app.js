@@ -143,13 +143,13 @@ function card(x) {
   const days=s.reviews===0?1:s.reviews===1?3:s.reviews===2?7:s.reviews===3?14:30;
   const date=x.date?` • ${x.date}`:"";
   const own=x.source==="custom";
-  return `<article class="card"><div class="card-head"><div><h3 class="title">${esc(x.title)}</h3><div class="meta">${esc(x.month)}${date} • ${esc(x.category)} ${own?" • ✍️ My CA":""} ${s.important?" • ⭐ Must Remember":""}${s.wrong?` • ⚠️ Wrong ${s.wrong}x`:""}</div></div><div class="due">${s.due?"Review: "+s.due:""}</div></div><div class="summary">${esc(short)}</div><div class="fact"><b>🧠 Recall:</b> Title dekho, answer mind mein bolo, phir exam note kholo. Active recall se yaad rakhna hai.</div><details><summary><b>Show exam note</b></summary><p class="summary">${esc(summary)}</p></details><div class="actions"><button class="action red" onclick="mark('${x.id}','remember')">🔴 Need to Remember</button><button class="action yellow" onclick="mark('${x.id}','review')">🟡 Review in ${days}d</button><button class="action green" onclick="mark('${x.id}','learned')">🟢 I Learned It</button><button class="action star" onclick="toggleImportant('${x.id}')">${s.important?"★ Unmark":"⭐ Must Remember"}</button>${own?`<button class="action delete" onclick="deleteCustom('${x.id}')">🗑 Delete</button>`:""}</div></article>`;
+  return `<article class="card"><div class="card-head"><div><h3 class="title">${esc(x.title)}</h3><div class="meta">${esc(x.month)}${date} • ${esc(x.category)} ${own?" • ✍️ My CA":""} ${s.important?" • ⭐ Must Remember":""}${s.wrong?` • ⚠️ Wrong ${s.wrong}x`:""}</div></div><div class="due">${s.due?"Review: "+s.due:""}</div></div><div class="summary">${esc(short)}</div><div class="fact"><b>🧠 Recall:</b> Title dekho, answer mind mein bolo, phir exam note kholo. Active recall se yaad rakhna hai.</div><details><summary><b>Show exam note</b></summary><p class="summary">${esc(summary)}</p></details><div class="actions"><button class="action red" onclick="mark('${x.id}','remember')">🔴 Need to Remember</button><button class="action yellow" onclick="mark('${x.id}','review')">🟡 Review in ${days}d</button><button class="action green" onclick="mark('${x.id}','learned')">🟢 I Learned It</button><button class="action star" onclick="toggleImportant('${x.id}')">${s.important?"★ Unmark":"⭐ Must Remember"}</button>${own?`<button class="action edit" onclick="editCustom('${x.id}')">✏️ Edit</button><button class="action delete" onclick="deleteCustom('${x.id}')">🗑 Delete</button>`:""}</div></article>`;
 }
 function dailyPool(){const data=DATA();const due=data.filter(x=>{const s=getState(x.id);return s.due&&s.due<=today()&&s.status!=="mastered"}),weak=data.filter(x=>{const s=getState(x.id);return s.wrong>0&&s.status!=="mastered"}),important=data.filter(x=>getState(x.id).important&&getState(x.id).status!=="mastered"),learnedRecent=data.filter(x=>{const s=getState(x.id);return(s.status==="learned"||s.status==="mastered")&&s.reviews<=1});const map=new Map();[...due,...weak,...important,...learnedRecent].forEach(x=>map.set(x.id,x));return [...map.values()];}
 function renderDaily(){const pool=dailyPool(),due=pool.filter(x=>{const s=getState(x.id);return s.due&&s.due<=today()&&s.status!=="mastered"}).length,weak=pool.filter(x=>getState(x.id).wrong>0).length,important=pool.filter(x=>getState(x.id).important).length,recent=pool.filter(x=>getState(x.id).reviews<=1&&(getState(x.id).status==="learned"||getState(x.id).status==="mastered")).length;$("list").innerHTML=`<div class="daily-box"><h2>⚡ Today's Revision</h2><p>App ne aaj ke liye due, weak, important aur recently learned CA ko ek jagah rakha hai.</p><div class="daily-grid"><div><b>${due}</b><span>Due Today</span></div><div><b>${weak}</b><span>Weak CA</span></div><div><b>${important}</b><span>Must Remember</span></div><div><b>${recent}</b><span>Recently Learned</span></div></div><div class="daily-actions"><button class="primary" onclick="startDailyFlashcards()">🧠 Start Recall</button><button class="secondary" onclick="startDailyQuiz()">📝 Daily Quiz</button></div></div>`+pool.map(card).join("");$("empty").classList.toggle("hidden",pool.length>0);}
 function startDailyFlashcards(){flashPool=dailyPool();flashIndex=0;setView("flashcards");}
 function startDailyQuiz(){const pool=dailyPool().filter(x=>{const s=getState(x.id);return s.status==="learned"||s.status==="mastered"});if(pool.length<4){alert("Daily Quiz ke liye kam se kam 4 Learned CA chahiye.");return;}window.__quizPoolIds=pool.map(x=>x.id);window.__quizCount=Math.min(10,pool.length);window.__quizCategory="";setView("quiz");}
-function hideSpecialPanels(){["quizPanel","flashPanel","calendarPanel","addPanel"].forEach(id=>$(id).classList.add("hidden"));}
+function hideSpecialPanels(){["quizPanel","flashPanel","calendarPanel","treePanel","gaPanel","addPanel"].forEach(id=>$(id).classList.add("hidden"));}
 function renderFilterInfo(arr){
   const all=DATA(), marked={learned:0,remember:0,important:0,weak:0};
   arr.forEach(x=>{const st=getState(x.id);if(st.status==="learned"||st.status==="mastered")marked.learned++;if(st.status==="remember")marked.remember++;if(st.important)marked.important++;if((st.wrong||0)>0)marked.weak++;});
@@ -157,7 +157,18 @@ function renderFilterInfo(arr){
   if(q)filters.push(`Search: <b>${esc(q)}</b>`); if(m)filters.push(`Month: <b>${esc(m)}</b>`); if(c)filters.push(`Category: <b>${esc(c)}</b>`); if(st)filters.push(`Status: <b>${esc(st)}</b>`);
   $("filterInfo").innerHTML=`Showing <b>${arr.length}</b> of <b>${all.length}</b> Current Affairs${filters.length?" • "+filters.join(" • "):""}<span class="filter-marked"> • 🟢 Learned <b>${marked.learned}</b> • 🔴 Need Revision <b>${marked.remember}</b> • ⭐ Must Remember <b>${marked.important}</b> • ⚠️ Weak <b>${marked.weak}</b></span>`;
 }
-function render(){stats();hideSpecialPanels();if(view==="quiz"){$("list").innerHTML="";$("empty").classList.add("hidden");$("filterInfo").innerHTML="📝 Quiz mode — questions are generated from your Learned/Mastered CA.";$("quizPanel").classList.remove("hidden");renderQuiz();return;}if(view==="flashcards"){$("list").innerHTML="";$("empty").classList.add("hidden");$("filterInfo").innerHTML="🧠 Flashcard mode — your marked progress is preserved.";$("flashPanel").classList.remove("hidden");renderFlashcards();return;}if(view==="calendar"){$("list").innerHTML="";$("empty").classList.add("hidden");$("filterInfo").innerHTML="📅 Calendar mode — date-wise CA and counts.";$("calendarPanel").classList.remove("hidden");renderCalendar();return;}if(view==="add"){$("list").innerHTML="";$("empty").classList.add("hidden");$("filterInfo").innerHTML="➕ Data Entry — manually added CA is stored separately from the original dataset.";$("addPanel").classList.remove("hidden");renderAddForm();return;}if(view==="daily"){renderDaily();renderFilterInfo(dailyPool());return;}const arr=DATA().filter(matches);renderFilterInfo(arr);$("list").innerHTML=arr.map(card).join("");$("empty").classList.toggle("hidden",arr.length>0);}
+function render(){
+  stats(); hideSpecialPanels();
+  if(view==="quiz"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="📝 Quiz mode — questions are generated from your Learned/Mastered CA."; $("quizPanel").classList.remove("hidden"); renderQuiz(); return; }
+  if(view==="flashcards"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="🧠 Flashcard mode — your marked progress is preserved."; $("flashPanel").classList.remove("hidden"); renderFlashcards(); return; }
+  if(view==="calendar"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="📅 Calendar mode — date-wise CA and counts."; $("calendarPanel").classList.remove("hidden"); renderCalendar(); return; }
+  if(view==="tree"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="🌳 Memory Tree — ek bank/organisation/topic ke saare related CA ek jagah, short notes ke saath."; $("treePanel").classList.remove("hidden"); renderTree(); return; }
+  if(view==="ga"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="📚 GA BAG — source-derived GA entries are already inside your CA data."; $("gaPanel").classList.remove("hidden"); renderGABag(); return; }
+  if(view==="tools"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="📥 Excel Import / Export — future CA files ko yahin se add ya backup karo."; $("toolsPanel").classList.remove("hidden"); renderTools(); return; }
+  if(view==="add"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="➕ Data Entry — manually added CA is stored separately from the original dataset."; $("addPanel").classList.remove("hidden"); renderAddForm(); return; }
+  if(view==="daily"){ renderDaily(); renderFilterInfo(dailyPool()); return; }
+  const arr=DATA().filter(matches); renderFilterInfo(arr); $("list").innerHTML=arr.map(card).join(""); $("empty").classList.toggle("hidden",arr.length>0);
+}
 function mark(id,type){let s=getState(id);if(type==="remember"){s.status="remember";s.due=today();}if(type==="learned"||type==="review"){s.status="learned";s.reviews=(s.reviews||0)+1;s.due=addDays(new Date(),s.reviews===1?1:s.reviews===2?3:s.reviews===3?7:s.reviews===4?14:30);}if(s.reviews>=6){s.status="mastered";s.due=addDays(new Date(),30);}progress[id]=s;markDirtyState(id);save();}
 function toggleImportant(id){const s=getState(id);s.important=!s.important;progress[id]=s;markDirtyState(id);save();}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return `${x.getFullYear()}-${pad(x.getMonth()+1)}-${pad(x.getDate())}`;}
@@ -166,20 +177,33 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setView(b.dat
 $("resetBtn").onclick=()=>{if(confirm("Reset all your revision progress? Your added CA entries will NOT be deleted.")){progress={};save();}};
 
 // ---------------- DATA ENTRY ----------------
-function renderAddForm(){
+function renderAddForm(editId=null){
   const cats=[...new Set(DATA().map(x=>x.category).filter(Boolean))].sort();
-  $("addPanel").innerHTML=`<div class="form-box"><div class="form-head"><div><h2>➕ Add Current Affair</h2><p>September aur future months ki CA yahin se add karo. Date dene par month automatically set ho jayega.</p></div><button class="secondary" onclick="setView('calendar')">📅 Open Calendar</button></div><form id="caForm" class="ca-form"><label>Date <input id="caDate" type="date" value="${today()}" required></label><label>Category <select id="caCategory" required><option value="">Select category</option>${cats.map(c=>`<option>${esc(c)}</option>`).join("")}<option value="__new">+ New category</option></select></label><label>Title <input id="caTitle" type="text" placeholder="Current affair headline" required></label><label>Exam Note / Summary <textarea id="caSummary" rows="7" placeholder="Important facts, numbers, names, place, organisation, etc." required></textarea></label><label>Tags <input id="caTags" type="text" placeholder="e.g. RBI, economy, appointment"></label><label class="check"><input id="caImportant" type="checkbox"> ⭐ Must Remember</label><div class="form-actions"><button class="primary" type="submit">💾 Save CA</button><button class="secondary" type="button" onclick="setView('all')">Cancel</button></div></form><div class="data-note">💡 Added CA browser ke local storage mein save hogi. GitHub/Vercel files change nahi hongi. Isliye same browser/device par entries safe rahengi; future mein export/import bhi add kar sakte hain.</div></div>`;
-  $("caCategory").onchange=()=>{if($("caCategory").value==="__new"){const c=prompt("New category name:");if(c&&cleanText(c)){const opt=document.createElement("option");opt.value=cleanText(c);opt.textContent=cleanText(c);$("caCategory").insertBefore(opt,$("caCategory").lastElementChild);$("caCategory").value=cleanText(c);}else $("caCategory").value="";}};
-  $("caForm").onsubmit=e=>{e.preventDefault();addCustomCA();};
+  const item=editId?customData.find(x=>x.id===editId):null;
+  const title=item?item.title:"", summary=item?item.summary:"", date=item?item.date:today(), category=item?item.category:"", tags=item?(item.tags||[]).filter(t=>t!==item.month&&t!==item.category).join(", "):"";
+  const important=item?!!getState(item.id).important:false;
+  const options=cats.map(c=>`<option value="${esc(c)}" ${c===category?"selected":""}>${esc(c)}</option>`).join("");
+  $("addPanel").innerHTML=`<div class="form-box"><div class="form-head"><div><h2>${item?"✏️ Edit Current Affair":"➕ Add Current Affair"}</h2><p>${item?"Apni added CA ka title, date, category, tags ya exam note kabhi bhi change karo.":"September aur future months ki CA yahin se add karo. Date dene par month automatically set ho jayega."}</p></div><button class="secondary" onclick="setView('calendar')">📅 Open Calendar</button></div><form id="caForm" class="ca-form"><label>Date <input id="caDate" type="date" value="${esc(date)}" required></label><label>Category <select id="caCategory" required><option value="">Select category</option>${options}<option value="__new">+ New category</option></select></label><label>Title <input id="caTitle" type="text" value="${esc(title)}" placeholder="Current affair headline" required></label><label>Exam Note / Summary <textarea id="caSummary" rows="9" placeholder="Important facts, numbers, names, place, organisation, etc." required>${esc(summary)}</textarea><label>Tags <input id="caTags" type="text" value="${esc(tags)}" placeholder="e.g. HDFC, RBI, economy, appointment"></label><label class="check"><input id="caImportant" type="checkbox" ${important?"checked":""}> ⭐ Must Remember</label><div class="form-actions"><button class="primary" type="submit">💾 ${item?"Save Changes":"Save CA"}</button><button class="secondary" type="button" onclick="setView('all')">Cancel</button></div></form><div class="data-note">💡 Added/edited CA cloud sync ke saath save hoti hai. Same account se phone/iPhone/iPad par bhi milegi.</div></div>`;
+  $("caCategory").onchange=()=>{if($("caCategory").value==="__new"){const c=prompt("New category name:");if(c&&cleanText(c)){const opt=document.createElement("option");opt.value=cleanText(c);opt.textContent=cleanText(c);$("caCategory").insertBefore(opt,$("caCategory").lastElementChild);$("caCategory").value=cleanText(c);}else $("caCategory").value=category||"";}};
+  $("caForm").onsubmit=e=>{e.preventDefault();saveCustomCA(editId);};
 }
-function addCustomCA(){
+function addCustomCA(){ saveCustomCA(null); }
+function saveCustomCA(editId){
   const date=$("caDate").value,category=cleanText($("caCategory").value),title=cleanText($("caTitle").value),summary=cleanText($("caSummary").value),tags=cleanText($("caTags").value).split(",").map(x=>cleanText(x)).filter(Boolean);
   if(!date||!category||category==="__new"||!title||!summary){alert("Date, category, title aur exam note required hain.");return;}
-  const id=`custom-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-  customData.push({id,date,month:monthName(date),category,title,summary,important:false,status:"new",tags:[monthName(date),category,...tags],source:"custom",updatedAt:Date.now()});
-  if($("caImportant").checked){progress[id]={...getState(id),important:true};markDirtyState(id);}
-  saveCustom(false);save(false);alert("✅ CA save ho gayi!");renderAddForm();
+  const stamp=Date.now();
+  if(editId){
+    const item=customData.find(x=>x.id===editId); if(!item)return;
+    item.date=date; item.month=monthName(date); item.category=category; item.title=title; item.summary=summary; item.tags=[monthName(date),category,...tags]; item.updatedAt=stamp;
+    const s=getState(editId); s.important=$("caImportant").checked; progress[editId]=s; markDirtyState(editId); markDirtyCustom(item); saveCustom(false); save(false); alert("✅ CA update ho gayi!"); setView("all");
+  } else {
+    const id=`custom-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    customData.push({id,date,month:monthName(date),category,title,summary,important:false,status:"new",tags:[monthName(date),category,...tags],source:"custom",updatedAt:stamp});
+    if($("caImportant").checked){progress[id]={...getState(id),important:true};markDirtyState(id);}
+    saveCustom(false);save(false);alert("✅ CA save ho gayi!");renderAddForm();
+  }
 }
+function editCustom(id){ if(!customData.some(x=>x.id===id))return; setView("add"); setTimeout(()=>renderAddForm(id),0); }
 function deleteCustom(id){if(!confirm("Is added CA ko delete karna hai?"))return;customData=customData.filter(x=>x.id!==id);delete progress[id];saveCustom(false);save();}
 
 // ---------------- CALENDAR ----------------
@@ -194,6 +218,78 @@ function renderCalendar(){
 }
 function changeCalendar(n){calendarDate=new Date(calendarDate.getFullYear(),calendarDate.getMonth()+n,1);renderCalendar();}
 function calendarDay(ds){const data=DATA().filter(x=>x.date===ds);if(!data.length){$("caDate")?.setAttribute("value",ds);setView("add");setTimeout(()=>{$("caDate").value=ds;},0);return;}$("calendarPanel").innerHTML=`<div class="day-results"><div class="calendar-head"><button class="secondary" onclick="renderCalendar()">← Calendar</button><div><h2>📅 ${ds}</h2><p>${data.length} CA found for this date.</p></div><button class="primary" onclick="setView('add');setTimeout(()=>{if($('caDate'))$('caDate').value='${ds}'},0)">➕ Add Another</button></div>${data.map(card).join("")}</div>`;}
+
+// ---------------- MEMORY TREE ----------------
+const TREE_ENTITIES=["HDFC","SBI","RBI","SEBI","NABARD","SIDBI","PNB","Canara Bank","Bank of Baroda","ICICI","Axis Bank","IDBI Bank","Union Bank","ADB","World Bank","IMF","AIIB","BIS","UN","UNESCO","WHO","WTO","ISRO","DRDO","NPCI","UPI","LIC","IRDAI","SIDBI","NITI Aayog","Ministry of Finance","Ministry of Defence","Ministry of External Affairs"];
+function treeGroups(){
+  const data=DATA();
+  return TREE_ENTITIES.map(name=>({name,items:data.filter(x=>`${x.title} ${x.summary} ${(x.tags||[]).join(" ")}`.toLowerCase().includes(name.toLowerCase()))})).filter(g=>g.items.length).sort((a,b)=>b.items.length-a.items.length);
+}
+function shortNote(x){ return firstSentence(x.summary||x.title).slice(0,260); }
+function renderTree(){
+  const groups=treeGroups();
+  $("treePanel").innerHTML=`<div class="tree-box"><div class="tree-head"><div><h2>🌳 Memory Tree</h2><p>HDFC/RBI/ADB jaise kisi entity par click karo — uske related saare CA ek saath, short exam-note format mein milenge.</p></div><input id="treeSearch" class="tree-search" type="search" placeholder="Search entity e.g. HDFC, ADB, RBI..."></div><div id="treeList" class="tree-list">${groups.map(treeGroupHTML).join("")}</div><div class="data-note">💡 Ye grouping tumhare CA ke title, summary aur tags se hoti hai. Kisi specific CA ko aur clearly group karna ho to Data Entry mein tag add kar do, jaise <b>HDFC</b>.</div></div>`;
+  $("treeSearch").oninput=()=>{const q=$("treeSearch").value.toLowerCase().trim();$("treeList").innerHTML=groups.filter(g=>!q||g.name.toLowerCase().includes(q)).map(treeGroupHTML).join("")||`<div class="empty">No entity group found.</div>`;};
+}
+function treeGroupHTML(g){return `<details class="tree-group"><summary><span>🌿 ${esc(g.name)}</span><b>${g.items.length} CA</b></summary><div class="tree-items">${g.items.map(x=>`<article class="tree-item"><div><strong>${esc(x.title)}</strong><div class="tree-meta">${esc(x.month)} • ${esc(x.category)}</div><p>${esc(shortNote(x))}</p></div><button class="mini" onclick="jumpToCA('${esc(x.id)}')">Open</button></article>`).join("")}</div></details>`;}
+function jumpToCA(id){view="all";["search","month","category","status"].forEach(k=>$(k).value="");$("search").value=String(DATA().find(x=>x.id===id)?.title||"").split(" ").slice(0,2).join(" ");document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("active",b.dataset.view==="all"));render();window.scrollTo({top:0,behavior:"smooth"});}
+
+// ---------------- EXCEL IMPORT / EXPORT ----------------
+function normalizeImportKey(v){return cleanText(v).toLowerCase().replace(/[^a-z0-9]+/g," ").trim();}
+function findColumn(headers,names){const map={};headers.forEach(h=>map[normalizeImportKey(h)]=h);for(const n of names){const k=normalizeImportKey(n);if(map[k])return map[k];}return null;}
+function parseBool(v){return [true,"true","yes","y","1","important","must remember"].includes(typeof v==="string"?v.trim().toLowerCase():v);}
+function importRowToItem(row,sourceSheet){
+  const headers=Object.keys(row); if(!headers.length)return null;
+  const titleKey=findColumn(headers,["Title","Question","Topic","Current Affair","Headline"]);
+  const summaryKey=findColumn(headers,["Exam Note","Summary","Answer","Details","Source Text","Notes"]);
+  const categoryKey=findColumn(headers,["Category","Type","Subject"]);
+  const dateKey=findColumn(headers,["Date","Published Date"]);
+  const tagsKey=findColumn(headers,["Tags","Tag","Entity"]);
+  const importantKey=findColumn(headers,["Must Remember","Important","Star"]);
+  const title=cleanText(row[titleKey]||""); if(!title)return null;
+  const summary=cleanText(row[summaryKey]||title);
+  const category=cleanText(row[categoryKey]||"General Awareness");
+  let date=cleanText(row[dateKey]||"");
+  if(date && /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(date)){const [d,m,y]=date.split(/[\/\-]/);date=`${String(y).padStart(4,"20")}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;}
+  const month=date?monthName(date):"Imported";
+  const tags=cleanText(row[tagsKey]||"").split(",").map(cleanText).filter(Boolean);
+  if(sourceSheet && !tags.includes(sourceSheet))tags.unshift(sourceSheet);
+  const key=normalizeImportKey(title)+"|"+normalizeImportKey(category)+"|"+date;
+  return {key,title,summary,category,date,month,tags,important:parseBool(row[importantKey]),source:"imported",sourceSheet};
+}
+function renderTools(){
+  const custom=customData.length, total=DATA().length;
+  $("toolsPanel").innerHTML=`<div class="form-box tools-box"><div class="form-head"><div><h2>📥 Excel Import / Export</h2><p>Future mein nayi CA ki Excel file aaye to yahin import karo. Multi-sheet Excel bhi chalega.</p></div><button class="secondary" onclick="setView('ga')">📚 GA BAG</button></div><div class="tools-grid"><article><h3>📤 Import Excel / CSV</h3><p>Title + Exam Note/Summary + Category columns ho to app automatically data samajh lega. Date aur Tags optional hain.</p><input id="excelImportFile" type="file" accept=".xlsx,.xls,.csv"><button class="primary" onclick="importExcelFile()">⬆️ Import File</button><div id="importResult" class="data-note"></div></article><article><h3>📥 Export Backup</h3><p>Apni added CA, progress aur complete CA list ka Excel backup bana lo.</p><button class="primary" onclick="exportMyData()">⬇️ Export My Data</button><button class="secondary" onclick="exportAllCA()">⬇️ Export All CA</button></article></div><div class="data-note"><b>Future PDF workflow:</b> PDF bhejo → usko Excel mein convert karo → yahan Import karo. Agar tumhare paas direct Excel hai, PDF conversion ki zarurat nahi. Duplicate title/category/date ko app skip karega.</div><div class="data-note"><b>Current data:</b> ${total} CA total • ${custom} manually/imported CA • GA BAG ke 141 source-derived entries already included.</div></div>`;
+}
+async function importExcelFile(){
+  const input=$("excelImportFile"),out=$("importResult"); if(!input?.files?.length){alert("Pehle Excel/CSV file select karo.");return;}
+  if(!window.XLSX){alert("Excel reader load nahi hua. Internet connection check karke page reload karo.");return;}
+  try{
+    const file=input.files[0],buf=await file.arrayBuffer(),wb=XLSX.read(buf,{type:"array"});
+    const existing=new Set(DATA().map(x=>normalizeImportKey(x.title)+"|"+normalizeImportKey(x.category)+"|"+(x.date||"")));
+    const added=[]; let skipped=0;
+    wb.SheetNames.forEach(sheetName=>{const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{defval:""}); rows.forEach(row=>{const x=importRowToItem(row,sheetName);if(!x)return; if(existing.has(x.key)){skipped++;return;} existing.add(x.key); const id=`import-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; added.push({id,date:x.date,month:x.month,category:x.category,title:x.title,summary:x.summary,status:"new",important:x.important,tags:[x.month,x.category,...x.tags],source:"imported",sourceSheet:x.sourceSheet,updatedAt:Date.now()});});});
+    if(added.length){customData.push(...added);added.forEach(x=>{if(x.important){progress[x.id]={...getState(x.id),important:true};markDirtyState(x.id);}});saveCustom(false);save(false);populate(true);render();}
+    out.textContent=`✅ Imported ${added.length} CA • ${skipped} duplicate rows skipped.`;
+  }catch(e){console.error(e);out.textContent="❌ Import error: "+(e.message||e);}
+}
+function exportWorkbook(rows,name){if(!window.XLSX){alert("Excel export library load nahi hua. Page reload karo.");return;}const wb=XLSX.utils.book_new();const sheet=XLSX.utils.json_to_sheet(rows);XLSX.utils.book_append_sheet(wb,sheet,"CA Data");XLSX.writeFile(wb,name);}
+function exportMyData(){
+  const rows=customData.map(x=>({Title:x.title,Category:x.category,"Exam Note":x.summary,Date:x.date||"",Tags:(x.tags||[]).join(", "),"Must Remember":getState(x.id).important?"Yes":"No",Source:x.source||"custom"}));
+  exportWorkbook(rows,"CA_Vault_My_Data.xlsx");
+}
+function exportAllCA(){
+  const rows=DATA().map(x=>({Title:x.title,Category:x.category,"Exam Note":x.summary,Date:x.date||"",Tags:(x.tags||[]).join(", "),"Must Remember":getState(x.id).important?"Yes":"No",Status:getState(x.id).status,Source:x.source||"base"}));
+  exportWorkbook(rows,"CA_Vault_All_CA.xlsx");
+}
+
+// ---------------- GA BAG ----------------
+function renderGABag(){
+  const ga=DATA().filter(x=>x.source==="ga-bag");
+  const c1=ga.filter(x=>(x.tags||[]).includes("Class 1")).length;
+  const c2=ga.filter(x=>(x.tags||[]).includes("Class 2")).length;
+  $("gaPanel").innerHTML=`<div class="ga-box"><div class="ga-head"><div><h2>📚 GA BAG</h2><p>GA BAG ki important source-derived CA ab app ke main data mein hi added hain — alag se 45+ MB PDFs GitHub par upload karne ki zarurat nahi.</p></div><button class="secondary" onclick="setView('tree')">🌳 Memory Tree</button></div><div class="daily-grid"><div><b>${ga.length}</b><span>GA BAG CA in app</span></div><div><b>${c1}</b><span>Class 1</span></div><div><b>${c2}</b><span>Class 2</span></div><div><b>${ga.filter(x=>getState(x.id).important).length}</b><span>Marked Important</span></div></div><div class="ga-grid"><article class="ga-file"><div class="ga-icon">📊</div><div><h3>GA_BAG_MIX.xlsx</h3><p>Class 1 + Class 2, separate sheets plus Combined sheet. Source text retained.</p><span>Excel backup/import file</span></div><a class="primary link-btn" href="GA_BAG_MIX.xlsx" download>Download Excel</a></article></div><div class="ga-tip"><b>Best workflow:</b> GA BAG CA already app mein hain → search/filter se padho → ⭐ Must Remember / 🟢 Learned mark karo → 🌳 Memory Tree se HDFC/RBI/ADB jaise entities revise karo. Future mein nayi Excel/CA file aaye to 📥 Excel Tools se import kar dena.</div><div class="data-note">⚠️ PDF source ka content source-faithful convert kiya gaya hai; external fact-check/correction is conversion mein nahi ki gayi.</div></div>`;
+}
 
 // ---------------- QUIZ ----------------
 function learnedPool(){const cat=window.__quizCategory||"",allowed=window.__quizPoolIds?new Set(window.__quizPoolIds):null;return DATA().filter(x=>{const s=getState(x.id);return x.title&&(s.status==="learned"||s.status==="mastered")&&(!cat||x.category===cat)&&(!allowed||allowed.has(x.id));});}

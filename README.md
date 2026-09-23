@@ -1,26 +1,22 @@
-# CA Vault V8 — Free Cloud Sync
+# CA Vault V12
 
-This version keeps the existing CA data and revision features, and adds free Supabase cloud sync so the same progress can be used on laptop + phone.
+Personal banking current-affairs revision app.
 
-## One-time setup
-1. Create a free project at Supabase.
-2. Open **SQL Editor** and run all of `supabase.sql`.
-3. Open **Project Settings → API** and copy the **Project URL** and **anon/public key**.
-4. Open `config.js` and replace the two placeholders:
-   - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY`
-5. Upload/replace the V8 files in your GitHub repo and let Vercel redeploy.
-6. Open the app and tap **☁️ Login / Sign up**. Use the same email/password on laptop and phone.
+## V12 updates
+- 1,423 original CA entries preserved.
+- 141 source-derived GA BAG entries added directly to `data.js` (Class 1 + Class 2).
+- GA BAG section now works without storing the large source PDFs in GitHub/Vercel.
+- `GA_BAG_MIX.xlsx` included as a small Excel backup/import file.
+- Excel/CSV Import supports multiple sheets.
+- Excel Export supports My Data and All CA backups.
+- Duplicate title + category + date rows are skipped during import.
+- Edit/Delete for manually added CA remains available.
+- Memory Tree remains available for entity-based revision.
+- Existing localStorage keys and Supabase tables are unchanged; no new SQL is required.
 
-## What syncs
-- Learned / Need to Remember / Review / Mastered
-- Must Remember
-- Weak CA + quiz mistakes
-- Review dates and review counts
-- Manually added September/future CA
+## Future CA file workflow
+If you receive a new Excel/CSV: open **📥 Excel Tools → Import File**.
+If you receive a PDF: convert/extract it to Excel first, then import the Excel. For a future GA BAG PDF you can send the PDF here and it can be converted into the same import-ready format.
 
-## Free-only
-No paid API is used. Vercel static hosting + Supabase Free are enough for a personal CA Vault at this scale.
-
-## Existing progress
-V8 keeps the existing browser localStorage keys and merges local progress with cloud progress on first login. After that, changes are saved to Supabase and available on other devices using the same account.
+## Supabase
+Keep your existing `config.js` values. Do not commit a service-role/secret key.
