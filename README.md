@@ -20,3 +20,10 @@ If you receive a PDF: convert/extract it to Excel first, then import the Excel. 
 
 ## Supabase
 Keep your existing `config.js` values. Do not commit a service-role/secret key.
+
+
+V13 Vocabulary update:
+- Added a dedicated Vocabulary Vault with meaning, synonyms, antonyms and example sentences.
+- Includes GA BAG-derived vocabulary plus bank-exam/PYQ-oriented high-frequency vocabulary.
+- Learned/Need Revision status and vocabulary quiz use the existing cloud progress table; no new SQL is required.
+- Users can add/edit/delete their own vocabulary and export the vocabulary list to Excel.

@@ -1,8 +1,12 @@
 const BASE_DATA = window.CA_DATA || [];
 const PROGRESS_KEY = "ca_vault_progress_v1";
 const CUSTOM_KEY = "ca_vault_custom_data_v1";
+const VOCAB_CUSTOM_KEY = "ca_vault_vocab_custom_v1";
 let customData = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]");
+let vocabCustomData = JSON.parse(localStorage.getItem(VOCAB_CUSTOM_KEY) || "[]");
 let progress = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
+const VOCAB_DATA_SAFE = Array.isArray(window.VOCAB_DATA) ? window.VOCAB_DATA : [];
+const ALL_VOCAB = () => { const seen=new Set(); const words=new Set(); return [...VOCAB_DATA_SAFE.map((x,i)=>({...x,id:x.id||`vocab-${i}-${x.word.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`,base:true})), ...vocabCustomData.map(x=>({...x,base:false}))].filter(x=>{const k=x.word.toLowerCase().trim();if(seen.has(x.id)||words.has(k))return false;seen.add(x.id);words.add(k);return true;}); };
 let cloud = null;
 let currentUser = null;
 let syncTimer = null;
@@ -16,9 +20,9 @@ const $ = id => document.getElementById(id);
 const pad = n => String(n).padStart(2, "0");
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
 const monthName = date => new Intl.DateTimeFormat("en-IN", { month:"long" }).format(new Date(`${date}T12:00:00`));
-const DATA = () => [...BASE_DATA, ...customData];
+const DATA = () => [...BASE_DATA, ...customData.filter(x=>x.kind!=="vocab")];
 const setSyncStatus = (text, cls="") => { const el=$("syncStatus"); if(el){el.textContent=text; el.className="sync-status "+cls;} };
-const localSave = () => { localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress)); localStorage.setItem(CUSTOM_KEY, JSON.stringify(customData)); };
+const localSave = () => { localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress)); localStorage.setItem(CUSTOM_KEY, JSON.stringify(customData)); localStorage.setItem(VOCAB_CUSTOM_KEY, JSON.stringify(vocabCustomData)); };
 const save = (rerender = true) => { localSave(); if (rerender) render(); scheduleCloudSync(); };
 const saveCustom = (rerender = true) => { localSave(); if (rerender) { populate(true); render(); } scheduleCloudSync(); };
 function markDirtyState(id){ progress[id] = {...progress[id], updatedAt: Date.now()}; }
@@ -90,8 +94,9 @@ async function syncFromCloud(){
     progress=merged;
     const {data:customRows,error:e2}=await cloud.from("ca_custom_items").select("item_id,item,updated_at"); if(e2) throw e2;
     const byId=new Map(customData.map(x=>[x.id,x]));
-    (customRows||[]).forEach(r=>{ const remote={...(r.item||{}),updatedAt:Number(r.item?.updatedAt||new Date(r.updated_at).getTime()||0)}; const local=byId.get(r.item_id); if(!local || Number(remote.updatedAt)>=Number(local.updatedAt||0)) byId.set(r.item_id,remote); });
-    customData=[...byId.values()]; localSave(); populate(true); cloudReady=true; render(); setSyncStatus("☁️ Synced", "online");
+    const vById=new Map(vocabCustomData.map(x=>[x.id,x]));
+    (customRows||[]).forEach(r=>{ const remote={...(r.item||{}),updatedAt:Number(r.item?.updatedAt||new Date(r.updated_at).getTime()||0)}; if(remote.kind==="vocab"){ const local=vById.get(r.item_id); if(!local || Number(remote.updatedAt)>=Number(local.updatedAt||0)) vById.set(r.item_id,remote); } else { const local=byId.get(r.item_id); if(!local || Number(remote.updatedAt)>=Number(local.updatedAt||0)) byId.set(r.item_id,remote); } });
+    customData=[...byId.values()]; vocabCustomData=[...vById.values()]; localSave(); populate(true); cloudReady=true; render(); setSyncStatus("☁️ Synced", "online");
     await syncToCloud();
   }catch(e){ console.error(e); cloudReady=true; setSyncStatus("☁️ Sync error", "error"); }
 }
@@ -100,7 +105,7 @@ async function syncToCloud(){
   try{
     const progressRows=Object.entries(progress).map(([item_id,state])=>({user_id:currentUser.id,item_id,state,updated_at:new Date(Number(state.updatedAt||Date.now())).toISOString()}));
     if(progressRows.length){ const {error}=await cloud.from("ca_progress").upsert(progressRows,{onConflict:"user_id,item_id"}); if(error) throw error; }
-    const customRows=customData.map(item=>({user_id:currentUser.id,item_id:item.id,item,updated_at:new Date(Number(item.updatedAt||Date.now())).toISOString()}));
+    const customRows=[...customData, ...vocabCustomData].map(item=>({user_id:currentUser.id,item_id:item.id,item,updated_at:new Date(Number(item.updatedAt||Date.now())).toISOString()}));
     if(customRows.length){ const {error}=await cloud.from("ca_custom_items").upsert(customRows,{onConflict:"user_id,item_id"}); if(error) throw error; }
     setSyncStatus("☁️ Synced", "online");
   }catch(e){console.error(e);setSyncStatus("☁️ Save failed", "error");}
@@ -149,7 +154,7 @@ function dailyPool(){const data=DATA();const due=data.filter(x=>{const s=getStat
 function renderDaily(){const pool=dailyPool(),due=pool.filter(x=>{const s=getState(x.id);return s.due&&s.due<=today()&&s.status!=="mastered"}).length,weak=pool.filter(x=>getState(x.id).wrong>0).length,important=pool.filter(x=>getState(x.id).important).length,recent=pool.filter(x=>getState(x.id).reviews<=1&&(getState(x.id).status==="learned"||getState(x.id).status==="mastered")).length;$("list").innerHTML=`<div class="daily-box"><h2>⚡ Today's Revision</h2><p>App ne aaj ke liye due, weak, important aur recently learned CA ko ek jagah rakha hai.</p><div class="daily-grid"><div><b>${due}</b><span>Due Today</span></div><div><b>${weak}</b><span>Weak CA</span></div><div><b>${important}</b><span>Must Remember</span></div><div><b>${recent}</b><span>Recently Learned</span></div></div><div class="daily-actions"><button class="primary" onclick="startDailyFlashcards()">🧠 Start Recall</button><button class="secondary" onclick="startDailyQuiz()">📝 Daily Quiz</button></div></div>`+pool.map(card).join("");$("empty").classList.toggle("hidden",pool.length>0);}
 function startDailyFlashcards(){flashPool=dailyPool();flashIndex=0;setView("flashcards");}
 function startDailyQuiz(){const pool=dailyPool().filter(x=>{const s=getState(x.id);return s.status==="learned"||s.status==="mastered"});if(pool.length<4){alert("Daily Quiz ke liye kam se kam 4 Learned CA chahiye.");return;}window.__quizPoolIds=pool.map(x=>x.id);window.__quizCount=Math.min(10,pool.length);window.__quizCategory="";setView("quiz");}
-function hideSpecialPanels(){["quizPanel","flashPanel","calendarPanel","treePanel","gaPanel","addPanel"].forEach(id=>$(id).classList.add("hidden"));}
+function hideSpecialPanels(){["quizPanel","flashPanel","calendarPanel","treePanel","gaPanel","toolsPanel","vocabPanel","addPanel"].forEach(id=>$(id).classList.add("hidden"));}
 function renderFilterInfo(arr){
   const all=DATA(), marked={learned:0,remember:0,important:0,weak:0};
   arr.forEach(x=>{const st=getState(x.id);if(st.status==="learned"||st.status==="mastered")marked.learned++;if(st.status==="remember")marked.remember++;if(st.important)marked.important++;if((st.wrong||0)>0)marked.weak++;});
@@ -164,6 +169,7 @@ function render(){
   if(view==="calendar"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="📅 Calendar mode — date-wise CA and counts."; $("calendarPanel").classList.remove("hidden"); renderCalendar(); return; }
   if(view==="tree"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="🌳 Memory Tree — ek bank/organisation/topic ke saare related CA ek jagah, short notes ke saath."; $("treePanel").classList.remove("hidden"); renderTree(); return; }
   if(view==="ga"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="📚 GA BAG — source-derived GA entries are already inside your CA data."; $("gaPanel").classList.remove("hidden"); renderGABag(); return; }
+  if(view==="vocab"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="📖 Vocabulary — meaning, synonyms, antonyms, example and exam-style recall."; $("vocabPanel").classList.remove("hidden"); renderVocab(); return; }
   if(view==="tools"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="📥 Excel Import / Export — future CA files ko yahin se add ya backup karo."; $("toolsPanel").classList.remove("hidden"); renderTools(); return; }
   if(view==="add"){ $("list").innerHTML=""; $("empty").classList.add("hidden"); $("filterInfo").innerHTML="➕ Data Entry — manually added CA is stored separately from the original dataset."; $("addPanel").classList.remove("hidden"); renderAddForm(); return; }
   if(view==="daily"){ renderDaily(); renderFilterInfo(dailyPool()); return; }
@@ -198,7 +204,7 @@ function saveCustomCA(editId){
     const s=getState(editId); s.important=$("caImportant").checked; progress[editId]=s; markDirtyState(editId); markDirtyCustom(item); saveCustom(false); save(false); alert("✅ CA update ho gayi!"); setView("all");
   } else {
     const id=`custom-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-    customData.push({id,date,month:monthName(date),category,title,summary,important:false,status:"new",tags:[monthName(date),category,...tags],source:"custom",updatedAt:stamp});
+    customData.push({id,date,month:monthName(date),category,title,summary,important:false,status:"new",tags:[monthName(date),category,...tags],source:"custom",kind:"ca",updatedAt:stamp});
     if($("caImportant").checked){progress[id]={...getState(id),important:true};markDirtyState(id);}
     saveCustom(false);save(false);alert("✅ CA save ho gayi!");renderAddForm();
   }
@@ -268,7 +274,7 @@ async function importExcelFile(){
     const file=input.files[0],buf=await file.arrayBuffer(),wb=XLSX.read(buf,{type:"array"});
     const existing=new Set(DATA().map(x=>normalizeImportKey(x.title)+"|"+normalizeImportKey(x.category)+"|"+(x.date||"")));
     const added=[]; let skipped=0;
-    wb.SheetNames.forEach(sheetName=>{const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{defval:""}); rows.forEach(row=>{const x=importRowToItem(row,sheetName);if(!x)return; if(existing.has(x.key)){skipped++;return;} existing.add(x.key); const id=`import-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; added.push({id,date:x.date,month:x.month,category:x.category,title:x.title,summary:x.summary,status:"new",important:x.important,tags:[x.month,x.category,...x.tags],source:"imported",sourceSheet:x.sourceSheet,updatedAt:Date.now()});});});
+    wb.SheetNames.forEach(sheetName=>{const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{defval:""}); rows.forEach(row=>{const x=importRowToItem(row,sheetName);if(!x)return; if(existing.has(x.key)){skipped++;return;} existing.add(x.key); const id=`import-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; added.push({id,date:x.date,month:x.month,category:x.category,title:x.title,summary:x.summary,status:"new",important:x.important,tags:[x.month,x.category,...x.tags],source:"imported",kind:"ca",sourceSheet:x.sourceSheet,updatedAt:Date.now()});});});
     if(added.length){customData.push(...added);added.forEach(x=>{if(x.important){progress[x.id]={...getState(x.id),important:true};markDirtyState(x.id);}});saveCustom(false);save(false);populate(true);render();}
     out.textContent=`✅ Imported ${added.length} CA • ${skipped} duplicate rows skipped.`;
   }catch(e){console.error(e);out.textContent="❌ Import error: "+(e.message||e);}
@@ -340,6 +346,40 @@ function answerQuiz(btn,correct,given,sourceId){const box=btn.closest(".q"),ans=
 function updateQuizScore(){const correctCount=[...document.querySelectorAll(".q")].filter(q=>q.dataset.correctPick==="1").length,total=document.querySelectorAll(".q").length,answered=document.querySelectorAll('.q[data-done="1"]').length,el=$("quizScore");if(el)el.textContent=`Score: ${correctCount} / ${total} • Answered: ${answered} / ${total}`;}
 function quizMark(id,type,btn){let s=getState(id);if(type==="learned"){s.status="learned";if(!s.due)s.due=addDays(new Date(),1);}if(type==="remember"){s.status="remember";s.due=today();}progress[id]=s;markDirtyState(id);save(false);btn.parentElement.querySelectorAll("button").forEach(b=>b.classList.remove("selected"));btn.classList.add("selected");stats();}
 function quizImportant(id,btn){const s=getState(id);s.important=true;progress[id]=s;markDirtyState(id);save(false);btn.classList.add("selected");btn.textContent="⭐ Marked Important";stats();}
+
+
+// ---------------- VOCABULARY ----------------
+function vocabState(id){ return progress[id] || {status:"new",wrong:0,updatedAt:0}; }
+function vocabSave(){ localSave(); scheduleCloudSync(); }
+function vocabMatches(v,q){ if(!q)return true; const hay=[v.word,v.meaning,(v.synonyms||[]).join(" "),(v.antonyms||[]).join(" "),v.example,v.source].join(" ").toLowerCase(); return hay.includes(q.toLowerCase()); }
+function vocabCard(v){
+  const s=vocabState(v.id); const learned=s.status==="learned"||s.status==="mastered"; const own=!v.base;
+  return `<article class="vocab-card"><div class="vocab-top"><div><span class="vocab-word">${esc(v.word)}</span><span class="vocab-priority">${esc(v.priority||"high")}</span></div><span class="vocab-status">${learned?"🟢 Learned":s.status==="remember"?"🔴 Need Revision":"🆕 New"}</span></div><div class="vocab-meaning"><b>Meaning:</b> ${esc(v.meaning)}</div><div class="vocab-grid"><div><b>Synonyms</b><p>${esc((v.synonyms||[]).join(", "))}</p></div><div><b>Antonyms</b><p>${esc((v.antonyms||[]).join(", "))}</p></div></div><div class="vocab-example"><b>Example:</b> ${esc(v.example)}</div><div class="vocab-source">Source: ${esc(v.source||"My vocabulary")}</div><div class="vocab-actions"><button class="action green" onclick="markVocab('${v.id}','learned')">🟢 I Learned It</button><button class="action red" onclick="markVocab('${v.id}','remember')">🔴 Need Revision</button><button class="action yellow" onclick="vocabQuizOne('${v.id}')">📝 Test Me</button>${own?`<button class="action edit" onclick="editVocab('${v.id}')">✏️ Edit</button><button class="action delete" onclick="deleteVocab('${v.id}')">🗑 Delete</button>`:""}</div></article>`;
+}
+function renderVocab(){
+  const all=ALL_VOCAB(); const learned=all.filter(v=>{const s=vocabState(v.id);return s.status==="learned"||s.status==="mastered"}).length; const due=all.filter(v=>vocabState(v.id).status==="remember").length;
+  $("vocabPanel").innerHTML=`<div class="vocab-box"><div class="vocab-head"><div><h2>📖 Bank Exam Vocabulary Vault</h2><p>Har word ko <b>meaning + synonyms + antonyms + example</b> ke saath yaad karo. Base set mein GA BAG source words aur bank-exam/PYQ-oriented high-frequency words hain.</p></div><div class="vocab-head-actions"><button class="primary" onclick="renderVocabQuiz()">📝 Vocab Quiz</button><button class="secondary" onclick="renderVocabForm()">➕ Add Vocabulary</button><button class="secondary" onclick="exportVocab()">⬇️ Export</button></div></div><div class="vocab-stats"><span>📚 ${all.length} Words</span><span>🟢 ${learned} Learned</span><span>🔴 ${due} Need Revision</span><span>✍️ ${vocabCustomData.length} My Words</span></div><div class="vocab-tools"><input id="vocabSearch" type="search" placeholder="Search word, meaning, synonym..."><select id="vocabStatus"><option value="">All</option><option value="new">New</option><option value="learned">Learned</option><option value="remember">Need Revision</option></select><select id="vocabSource"><option value="">All sources</option><option value="GA BAG source">GA BAG source</option><option value="SBI PO memory-based PYQ">SBI PO memory-based PYQ</option><option value="Bank exam PYQ/reference">Bank exam PYQ/reference</option><option value="High-frequency bank vocabulary">High-frequency bank vocabulary</option><option value="My vocabulary">My vocabulary</option></select></div><div id="vocabList" class="vocab-list"></div></div>`;
+  const renderList=()=>{const q=$("vocabSearch").value.trim(),st=$("vocabStatus").value,src=$("vocabSource").value;const arr=all.filter(v=>vocabMatches(v,q)&&(!st||vocabState(v.id).status===st)&&(!src||(src==="My vocabulary"?!v.base:v.source===src)));$("vocabList").innerHTML=arr.map(vocabCard).join("")||`<div class="empty">No vocabulary found.</div>`;};
+  $("vocabSearch").oninput=renderList;$("vocabStatus").onchange=renderList;$("vocabSource").onchange=renderList;renderList();
+}
+function markVocab(id,type){const s=vocabState(id);if(type==="learned"){s.status="learned";s.due=addDays(new Date(),2);}else{s.status="remember";s.due=today();}s.updatedAt=Date.now();progress[id]=s;vocabSave();renderVocab();}
+function editVocab(id){setView("vocab");setTimeout(()=>renderVocabForm(id),0);}
+function deleteVocab(id){const v=vocabCustomData.find(x=>x.id===id);if(!v)return;if(!confirm(`Delete vocabulary “${v.word}”?`))return;vocabCustomData=vocabCustomData.filter(x=>x.id!==id);delete progress[id];vocabSave();renderVocab();}
+
+function exportVocab(){ const rows=ALL_VOCAB().map(v=>({Word:v.word,Meaning:v.meaning,Synonyms:(v.synonyms||[]).join(", "),Antonyms:(v.antonyms||[]).join(", "),Example:v.example,Source:v.source||"",Priority:v.priority||"high"})); exportWorkbook(rows,"CA_Vault_Vocabulary.xlsx"); }
+function renderVocabForm(editId=null){
+  const item=editId?vocabCustomData.find(x=>x.id===editId):null; const v=item||{};
+  $("vocabPanel").innerHTML=`<div class="form-box"><div class="form-head"><div><h2>${item?"✏️ Edit Vocabulary":"➕ Add Vocabulary"}</h2><p>Word, meaning, synonyms, antonyms aur apna example add karo. Tumhari vocabulary cloud sync ke saath save hogi.</p></div><button class="secondary" onclick="renderVocab()">← Vocabulary</button></div><form id="vocabForm" class="ca-form"><label>Word <input id="vwWord" required value="${esc(v.word||"")}" placeholder="e.g. prudent"></label><label>Source <input id="vwSource" value="${esc(v.source||"My vocabulary")}" placeholder="My vocabulary / class / book"></label><label>Meaning <input id="vwMeaning" required value="${esc(v.meaning||"")}" placeholder="Simple meaning"></label><label>Synonyms <input id="vwSynonyms" value="${esc((v.synonyms||[]).join(", "))}" placeholder="wise, cautious, sensible"></label><label>Antonyms <input id="vwAntonyms" value="${esc((v.antonyms||[]).join(", "))}" placeholder="reckless, imprudent"></label><label>Example Sentence <textarea id="vwExample" rows="4" required placeholder="Use the word in a banking/current-affairs sentence.">${esc(v.example||"")}</textarea><label>Priority <select id="vwPriority"><option ${v.priority==="very-high"?"selected":""}>very-high</option><option ${v.priority==="high"||!v.priority?"selected":""}>high</option><option ${v.priority==="medium"?"selected":""}>medium</option></select></label><div class="form-actions"><button class="primary" type="submit">💾 ${item?"Save Changes":"Save Vocabulary"}</button><button class="secondary" type="button" onclick="renderVocab()">Cancel</button></div></form></div>`;
+  $("vocabForm").onsubmit=e=>{e.preventDefault();saveVocab(editId);};
+}
+function saveVocab(editId){const word=cleanText($("vwWord").value),meaning=cleanText($("vwMeaning").value),source=cleanText($("vwSource").value)||"My vocabulary",synonyms=cleanText($("vwSynonyms").value).split(",").map(cleanText).filter(Boolean),antonyms=cleanText($("vwAntonyms").value).split(",").map(cleanText).filter(Boolean),example=cleanText($("vwExample").value),priority=$("vwPriority").value;if(!word||!meaning||!example){alert("Word, meaning aur example required hain.");return;}const stamp=Date.now();if(editId){const item=vocabCustomData.find(x=>x.id===editId);if(!item)return;Object.assign(item,{word,meaning,synonyms,antonyms,example,source,priority,updatedAt:stamp});}else{const id=`vocab-custom-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;vocabCustomData.push({id,word,meaning,synonyms,antonyms,example,source,priority,kind:"vocab",updatedAt:stamp});}vocabSave();renderVocab();}
+function vocabQuizOne(id){const v=ALL_VOCAB().find(x=>x.id===id);if(!v)return;window.__vocabQuizSingle=id;renderVocabQuiz();}
+function renderVocabQuiz(){
+  const all=ALL_VOCAB(),learned=all.filter(v=>{const s=vocabState(v.id);return s.status==="learned"||s.status==="mastered"}); const sourceId=window.__vocabQuizSingle; const pool=sourceId?all.filter(v=>v.id===sourceId):learned; if(!pool.length){$("vocabPanel").innerHTML=`<div class="quiz-empty"><h2>📝 Vocabulary Quiz</h2><p>Quiz ke liye pehle kam se kam 1 word ko 🟢 Learned mark karo.</p><button class="secondary" onclick="renderVocab()">← Back</button></div>`;return;}
+  const count=Math.min(10,pool.length);const selected=shuffled(pool).slice(0,count);const questions=selected.map((v,i)=>{const mode=["meaning","synonym","antonym","usage"][i%4];let correct,question;if(mode==="meaning"){correct=v.meaning;question=`What is the closest meaning of “${v.word}”?`;}else if(mode==="synonym"){correct=(v.synonyms||[])[0]||v.meaning;question=`Choose the closest synonym of “${v.word}”.`;}else if(mode==="antonym"){correct=(v.antonyms||[])[0]||"None";question=`Choose the closest antonym of “${v.word}”.`;}else{correct=v.word;question=`Which word best fits this sentence? “${v.example.replace(new RegExp(v.word,"ig"),"_____ ") }”`;}const candidates=shuffled(all.filter(x=>x.id!==v.id).flatMap(x=>mode==="meaning"?[x.meaning]:mode==="synonym"?[(x.synonyms||[])[0]].filter(Boolean):mode==="antonym"?[(x.antonyms||[])[0]].filter(Boolean):[x.word]));const opts=[];[correct,...candidates].forEach(o=>{if(o&&!opts.includes(o))opts.push(o)});return {v,question,correct,options:shuffled(opts.slice(0,4))};});
+  $("vocabPanel").innerHTML=`<div class="vocab-box"><div class="vocab-head"><div><h2>📝 Vocabulary Quiz</h2><p>${sourceId?"Single-word test":"Quiz sirf tumhare Learned words se aa raha hai."}</p></div><button class="secondary" onclick="renderVocab()">← Vocabulary</button></div><div class="quiz-score" id="vocabScore">Score: 0 / ${questions.length}</div>${questions.map((q,i)=>`<div class="q" data-correct="${esc(q.correct)}"><div class="q-number">Question ${i+1}</div><b>${esc(q.question)}</b>${q.options.map(o=>`<button class="option" onclick="answerVocab(this,${JSON.stringify(q.correct)},${JSON.stringify(o)},${JSON.stringify(q.v.id)})">${esc(o)}</button>`).join("")}<div class="answer"></div></div>`).join("")}</div>`;
+}
+function answerVocab(btn,correct,given,id){const box=btn.closest(".q"),ans=box.querySelector(".answer");if(box.dataset.done==="1")return;box.querySelectorAll("button.option").forEach(b=>b.disabled=true);const s=vocabState(id);if(given===correct){btn.classList.add("correct");ans.innerHTML="✅ Correct — good recall.";}else{btn.classList.add("wrong");ans.innerHTML=`❌ Correct answer: ${esc(correct)}`;s.wrong=(s.wrong||0)+1;s.status="remember";s.due=today();progress[id]=s;}box.dataset.done="1";box.dataset.correctPick=given===correct?"1":"0";s.updatedAt=Date.now();progress[id]=s;vocabSave();const qs=[...document.querySelectorAll("#vocabPanel .q")];const score=qs.filter(q=>q.dataset.correctPick==="1").length;$("vocabScore").textContent=`Score: ${score} / ${qs.length}`;}
 
 // ---------------- FLASHCARDS ----------------
 function flashCandidates(){const data=DATA();const weak=data.filter(x=>getState(x.id).wrong>0&&getState(x.id).status!=="mastered"),due=data.filter(x=>{const s=getState(x.id);return s.due&&s.due<=today()&&s.status!=="mastered"}),important=data.filter(x=>getState(x.id).important&&getState(x.id).status!=="mastered"),learned=data.filter(x=>{const s=getState(x.id);return s.status==="learned"||s.status==="mastered"});const map=new Map();[...weak,...due,...important,...learned].forEach(x=>map.set(x.id,x));return [...map.values()];}
