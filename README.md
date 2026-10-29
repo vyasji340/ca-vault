@@ -1,29 +1,16 @@
-# CA Vault V12
+# CA Vault V14 — Hybrid Study Edition
 
-Personal banking current-affairs revision app.
+Personal current-affairs and vocabulary revision app for banking exams.
 
-## V12 updates
-- 1,423 original CA entries preserved.
-- 141 source-derived GA BAG entries added directly to `data.js` (Class 1 + Class 2).
-- GA BAG section now works without storing the large source PDFs in GitHub/Vercel.
-- `GA_BAG_MIX.xlsx` included as a small Excel backup/import file.
-- Excel/CSV Import supports multiple sheets.
-- Excel Export supports My Data and All CA backups.
-- Duplicate title + category + date rows are skipped during import.
-- Edit/Delete for manually added CA remains available.
-- Memory Tree remains available for entity-based revision.
-- Existing localStorage keys and Supabase tables are unchanged; no new SQL is required.
+## Deploy
+1. Keep your existing `config.js` Supabase URL and publishable/anon key intact.
+2. Upload the folder to the GitHub repository connected to Vercel, or deploy this folder to Vercel.
+3. Core CA, progress, vocabulary and revision features work without AI API billing.
+4. Optional AI Study Assistant: in Vercel → Project → Settings → Environment Variables, add `OPENAI_API_KEY` (secret) and optionally `OPENAI_MODEL` (defaults to `gpt-4.1-mini`). Redeploy. Never put the secret in `config.js`, browser code, or GitHub.
+5. AI calls are usage-billed by the API provider separately from ChatGPT subscription. If no key is configured, the app reports AI unavailable and all non-AI features remain usable.
 
-## Future CA file workflow
-If you receive a new Excel/CSV: open **📥 Excel Tools → Import File**.
-If you receive a PDF: convert/extract it to Excel first, then import the Excel. For a future GA BAG PDF you can send the PDF here and it can be converted into the same import-ready format.
+## Hybrid AI
+The browser selects a small set of relevant CA and vocabulary records and sends that context with the question to `/api/study`. The Vercel serverless endpoint calls the OpenAI Responses API using the server-side environment variable. AI responses can make mistakes; verify important facts against source notes.
 
 ## Supabase
-Keep your existing `config.js` values. Do not commit a service-role/secret key.
-
-
-V13 Vocabulary update:
-- Added a dedicated Vocabulary Vault with meaning, synonyms, antonyms and example sentences.
-- Includes GA BAG-derived vocabulary plus bank-exam/PYQ-oriented high-frequency vocabulary.
-- Learned/Need Revision status and vocabulary quiz use the existing cloud progress table; no new SQL is required.
-- Users can add/edit/delete their own vocabulary and export the vocabulary list to Excel.
+Existing SQL and tables are preserved. No database migration is required for this version. Use the same Supabase account to sync between devices.
